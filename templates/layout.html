@@ -15,7 +15,18 @@
             <a class="navbar-brand" href="/">Att School</a>
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav ms-auto">
+                    {% if current_user.is_authenticated and current_user.role=='admin' %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="adminMenu" role="button"
+                            data-bs-toggle="dropdown" aria-expanded="false">Admin</a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
+                            <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}">Dashboard</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin_periods') }}">Manage Periods</a></li>
+                        </ul>
+                    </li>
+                    {% else %}
                     <li class="nav-item"><a class="nav-link" href="/admin/login">Admin</a></li>
+                    {% endif %}
                     <li class="nav-item"><a class="nav-link" href="/staff/login">Staff</a></li>
                     <li class="nav-item"><a class="nav-link" href="/teacher/login">Teacher</a></li>
                 </ul>

@@ -1,0 +1,33 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Manage Users</h3>
+<a class="btn btn-primary mb-3" href="{{ url_for('admin_users_create') }}">Create User</a>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Role</th>
+            <th>National ID</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{u.id}}</td>
+            <td>{{u.name}}</td>
+            <td>{{u.role}}</td>
+            <td>{{u.national_id or ''}}</td>
+            <td>
+                <a class="btn btn-sm btn-secondary" href="{{ url_for('admin_users_edit', user_id=u.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('admin_users_delete', user_id=u.id) }}"
+                    style="display:inline-block" onsubmit="return confirm('Delete user?')">
+                    <button class="btn btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

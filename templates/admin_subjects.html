@@ -1,0 +1,30 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Manage Subjects</h3>
+<a class="btn btn-primary mb-3" href="{{ url_for('admin_subjects_create') }}">Create Subject</a>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in subjects %}
+        <tr>
+            <td>{{s.id}}</td>
+            <td>{{s.name}}</td>
+            <td>
+                <a class="btn btn-sm btn-secondary"
+                    href="{{ url_for('admin_subjects_edit', subject_id=s.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('admin_subjects_delete', subject_id=s.id) }}"
+                    style="display:inline-block" onsubmit="return confirm('Delete subject?')">
+                    <button class="btn btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

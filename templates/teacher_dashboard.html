@@ -1,13 +1,24 @@
 {% extends 'layout.html' %}
 {% block content %}
 <h3>Teacher: {{teacher.name}} | Class: {{klass.name}} | Date: {{today}}</h3>
+{% if current_period %}
+<div class="alert alert-info">Current period: <strong>Period {{ current_period }}</strong></div>
+{% endif %}
 <form method="post">
     <div class="mb-3">
         <label class="form-label">Period</label>
-        <select name="period" class="form-select">
-            {% for i in range(1,9) %}
-            <option value="{{i}}">Period {{i}}</option>
+        <select name="period" class="form-select" aria-label="Select period">
+            {% if periods_today and periods_today|length > 0 %}
+            {% for p in periods_today %}
+            <option value="{{ p.period }}" {% if current_period and current_period==p.period %}selected{% endif %}>
+                Period {{ p.period }}{% if p.start_time and p.end_time %} ({{ p.start_time }}-{{ p.end_time }}){% endif
+                %}</option>
             {% endfor %}
+            {% else %}
+            {% for i in range(1,9) %}
+            <option value="{{i}}" {% if current_period and current_period==i %}selected{% endif %}>Period {{i}}</option>
+            {% endfor %}
+            {% endif %}
         </select>
     </div>
     <table class="table table-striped">
@@ -22,15 +33,19 @@
             <tr>
                 <td>{{s.name}}</td>
                 <td>
-                    <select name="status_{{s.id}}" class="form-select">
-                        <option value="present">Present</option>
-                        <option value="absent">Absent</option>
+                    {% set sel_status = '' %}
+                    {% if current_period and attendance.get(current_period) %}
+                    {% set sel_status = attendance[current_period].get(s.id) %}
+                    {% endif %}
+                    <select name="status_{{s.id}}" class="form-select" aria-label="Status for {{ s.name }}">
+                        <option value="present" {% if sel_status=='present' %}selected{% endif %}>Present</option>
+                        <option value="absent" {% if sel_status=='absent' %}selected{% endif %}>Absent</option>
                     </select>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    <button class="btn btn-success">Save Attendance</button>
+    <button type="submit" class="btn btn-success">Save Attendance</button>
 </form>
 {% endblock %}

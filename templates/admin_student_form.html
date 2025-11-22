@@ -1,0 +1,24 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>{{ 'Edit' if student else 'Create' }} Student</h3>
+<form method="post">
+    <div class="mb-3">
+        <label class="form-label">Name</label>
+        <input class="form-control" name="name" value="{{ student.name if student else '' }}" required>
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Class</label>
+        <select name="class_id" class="form-select">
+            <option value="">(none)</option>
+            {% for c in classes %}
+            <option value="{{c.id}}" {% if student and student.class_id==c.id %}selected{% endif %}>{{c.name}}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
+        <label class="form-label">National ID</label>
+        <input class="form-control" name="national_id" value="{{ student.national_id if student else '' }}">
+    </div>
+    <button class="btn btn-primary">Save</button>
+</form>
+{% endblock %}
