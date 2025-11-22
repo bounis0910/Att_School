@@ -1,0 +1,23 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Staff Dashboard | Date: {{today}}</h3>
+<a class="btn btn-outline-primary mb-3" href="/staff/export_excel">Download Excel (today)</a>
+<table class="table table-bordered">
+    <thead>
+        <tr>
+            <th>Class</th>
+            <th>Students</th>
+            <th>Absences (today)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in summary %}
+        <tr>
+            <td>{{s.class.name}}</td>
+            <td>{{s.total}}</td>
+            <td>{{s.absences}}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

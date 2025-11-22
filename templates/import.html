@@ -1,0 +1,12 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Import Excel</h3>
+<p>Upload an Excel file with sheets named: <strong>classes</strong>, <strong>students</strong>,
+    <strong>teachers</strong>, <strong>subjects</strong>. Columns: name, class (for students)</p>
+<form method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+        <input type="file" name="file" class="form-control" accept=".xls,.xlsx" required>
+    </div>
+    <button class="btn btn-primary">Import</button>
+</form>
+{% endblock %}

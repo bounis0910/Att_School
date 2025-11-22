@@ -1,0 +1,13 @@
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+.container {
+  max-width: 1000px;
+}
+
+/* simple responsive tweaks */
+@media (max-width: 576px) {
+  .table {
+    font-size: 0.9rem;
+  }
+}
