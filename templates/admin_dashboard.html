@@ -1,6 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
 <h3>Admin Dashboard</h3>
+{% if current_period %}
+<div class="alert alert-info">Current period: <strong>Period {{ current_period }}</strong></div>
+{% endif %}
 <div class="mb-3">
     <a class="btn btn-secondary" href="/admin/import">Import Excel</a>
     <a class="btn btn-primary" href="/admin/export_pdf">Export PDF (today)</a>
@@ -18,9 +21,14 @@
 </div>
 
 <h5>Classes</h5>
-<ul>
+<ul class="list-unstyled">
     {% for c in classes %}
-    <li>{{c.name}}</li>
+    <li>
+        {{ c.name }}
+        {% if class_current and class_current.get(c.id) %}
+        <span class="badge bg-info ms-2">Current: P{{ class_current.get(c.id) }}</span>
+        {% endif %}
+    </li>
     {% endfor %}
 </ul>
 <h5>Teachers</h5>

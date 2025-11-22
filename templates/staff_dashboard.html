@@ -1,6 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
 <h3>Staff Dashboard | Date: {{today}}</h3>
+{% if current_period %}
+<div class="alert alert-info">Current period: <strong>Period {{ current_period }}</strong></div>
+{% endif %}
 <a class="btn btn-outline-primary mb-3" href="/staff/export_excel">Download Excel (today)</a>
 <table class="table table-bordered">
     <thead>
@@ -12,8 +15,13 @@
     </thead>
     <tbody>
         {% for s in summary %}
-        <tr>
-            <td>{{s.class.name}}</td>
+        <tr {% if s.current_period %}class="table-info" {% endif %}>
+            <td>
+                {{s.class.name}}
+                {% if s.current_period %}
+                <span class="badge bg-info ms-2">Current: P{{ s.current_period }}</span>
+                {% endif %}
+            </td>
             <td>{{s.total}}</td>
             <td>{{s.absences}}</td>
         </tr>

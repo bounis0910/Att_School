@@ -1,5 +1,5 @@
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Tajawal', Tahoma, Geneva, Verdana, sans-serif;
 }
 .container {
   max-width: 1000px;
@@ -10,4 +10,15 @@ body {
   .table {
     font-size: 0.9rem;
   }
+}
+
+/* current period visuals */
+.form-select[disabled] {
+  background-color: #e9f7ff;
+  opacity: 1;
+}
+.current-period-banner {
+  background: linear-gradient(90deg, #e6f7ff, #dff4ff);
+  border-left: 4px solid #0d6efd;
+  padding: 0.6rem;
 }

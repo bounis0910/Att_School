@@ -91,6 +91,29 @@ class Period(db.Model):
     )
 
 
+def get_current_period_for_class(class_id=None):
+    """Return current period number for today for given class_id or global (None).
+    Looks for Period entries whose time range includes now. Returns (period_number, Period) or (None, None).
+    """
+    weekday = date.today().weekday()
+    periods_today = Period.query.filter(Period.day_of_week == weekday).filter(
+        or_(Period.class_id == None, Period.class_id == class_id) if class_id is None else
+        or_(Period.class_id == None, Period.class_id == class_id)
+    ).order_by(Period.period).all()
+    now = datetime.now().time()
+    def parse_t(tstr):
+        try:
+            return datetime.strptime(tstr, '%H:%M').time()
+        except Exception:
+            return None
+    for p in periods_today:
+        st = parse_t(p.start_time) if p.start_time else None
+        en = parse_t(p.end_time) if p.end_time else None
+        if st and en and st <= now <= en:
+            return p.period, p
+    return None, None
+
+
 class Attendance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'))
@@ -245,7 +268,11 @@ def admin_dashboard():
     classes = SchoolClass.query.all()
     teachers = User.query.filter_by(role='teacher').all()
     subjects = Subject.query.all()
-    return render_template('admin_dashboard.html', classes=classes, teachers=teachers, subjects=subjects)
+    # compute global current period (no specific class)
+    current_period, _ = get_current_period_for_class(None)
+    # compute per-class current period map
+    class_current = {c.id: get_current_period_for_class(c.id)[0] for c in classes}
+    return render_template('admin_dashboard.html', classes=classes, teachers=teachers, subjects=subjects, current_period=current_period, class_current=class_current)
 
 
 ### Admin CRUD: Users / Classes / Subjects / Students / Attendance ###
@@ -787,8 +814,11 @@ def staff_dashboard():
         students = Student.query.filter_by(class_id=klass.id).all()
         total = len(students)
         absences = Attendance.query.filter_by(date=today, class_id=klass.id, status='absent').count()
-        summary.append({'class': klass, 'total': total, 'absences': absences})
-    return render_template('staff_dashboard.html', summary=summary, today=today)
+        class_cp = get_current_period_for_class(klass.id)[0]
+        summary.append({'class': klass, 'total': total, 'absences': absences, 'current_period': class_cp})
+    # global current period
+    current_period, _ = get_current_period_for_class(None)
+    return render_template('staff_dashboard.html', summary=summary, today=today, current_period=current_period)
 
 
 @app.route('/staff/export_excel')
