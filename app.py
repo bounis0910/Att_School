@@ -148,6 +148,7 @@ def init_db():
 @click.argument('name')
 @click.option('--password', default=None, help='Optional password for the teacher')
 @click.option('--nid', default=None, help='Optional national id for the teacher')
+@click.option('--ph1', default=None, help='Optional national id for the teacher')
 def add_teacher(name, password, nid):
     """Add a teacher user to the database: flask --app app add-teacher "Name" --password pw"""
     if User.query.filter_by(name=name, role='teacher').first():
@@ -654,11 +655,16 @@ def admin_import():
                 class_name = str(row.get('class') or row.get('Class') or '').strip()
                 # try common national id column names
                 nid = row.get('national_id') or row.get('national id') or row.get('nid') or row.get('NationalID') or row.get('NID')
+
+                ph2 = str(row.get('phone2')).strip()               
+                ph1 = str(row.get('phone1')).strip() 
                 if name:
                     klass = SchoolClass.query.filter_by(name=class_name).first() if class_name else None
                     s = Student(name=name, class_id=klass.id if klass else None)
                     if nid is not None:
                         s.national_id = str(nid).strip()
+                        s.phone1 = str(ph1).strip()
+                        s.phone2 = str(ph2).strip()
                     db.session.add(s)
         if 'teachers' in df:
             for _, row in df['teachers'].iterrows():
