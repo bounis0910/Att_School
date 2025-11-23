@@ -59,8 +59,8 @@
                 <td>{{s.name}}</td>
                 <td>
                     <select name="status_{{s.id}}" class="form-select" aria-label="Status for {{ s.name }}">
-                        <option value="present" {% if sel_status=='present' %}selected{% endif %}>Present</option>
-                        <option value="absent" {% if sel_status=='absent' %}selected{% endif %}>Absent</option>
+                        <option value="present" {% if sel_status=='present' %}selected{% endif %}>حاضر</option>
+                        <option value="absent" {% if sel_status=='absent' %}selected{% endif %}>غائب</option>
                     </select>
                 </td>
             </tr>
