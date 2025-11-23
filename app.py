@@ -441,6 +441,57 @@ def logout():
     return redirect(url_for('index'))
 
 
+@app.route('/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    """Allow users to change their own password"""
+    if request.method == 'POST':
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        conn = get_db()
+        user_id = int(current_user.get_id())
+        row = conn.execute("SELECT * FROM user WHERE id = ?", (user_id,)).fetchone()
+        
+        if not row:
+            flash('User not found', 'danger')
+            return redirect(url_for('index'))
+        
+        user = SimpleUser(row)
+        
+        # Validate current password
+        if not user.check_password(current_password):
+            flash('Current password is incorrect', 'danger')
+            return render_template('change_password.html')
+        
+        # Validate new password
+        if not new_password:
+            flash('New password is required', 'danger')
+        elif new_password != confirm_password:
+            flash('New passwords do not match', 'danger')
+        elif len(new_password) < 4:
+            flash('Password must be at least 4 characters', 'danger')
+        else:
+            # Update password
+            pw_hash = generate_password_hash(new_password)
+            conn.execute("UPDATE user SET password_hash = ? WHERE id = ?", (pw_hash, user_id))
+            conn.commit()
+            flash('Password changed successfully', 'success')
+            
+            # Redirect based on role
+            if current_user.role == 'admin':
+                return redirect(url_for('admin_dashboard'))
+            elif current_user.role == 'staff':
+                return redirect(url_for('staff_dashboard'))
+            elif current_user.role == 'teacher':
+                return redirect(url_for('teacher_classes'))
+            else:
+                return redirect(url_for('index'))
+    
+    return render_template('change_password.html')
+
+
 @app.route('/admin/dashboard')
 @login_required
 def admin_dashboard():
@@ -506,9 +557,9 @@ def admin_users_create():
         email = request.form.get('email') or None
         pw_hash = generate_password_hash(password) if password else None
         
-        # Handle class assignments for teachers
+        # Handle class assignments for teachers and staff
         assigned_classes = ''
-        if role == 'teacher':
+        if role in ['teacher', 'staff']:
             selected_class_ids = request.form.getlist('assigned_classes')
             assigned_classes = ','.join(selected_class_ids) if selected_class_ids else ''
         
@@ -544,9 +595,9 @@ def admin_users_edit(user_id):
         email = request.form.get('email') or None
         pw_hash = generate_password_hash(pw) if pw else row['password_hash']
         
-        # Handle class assignments for teachers
+        # Handle class assignments for teachers and staff
         assigned_classes = ''
-        if role == 'teacher':
+        if role in ['teacher', 'staff']:
             selected_class_ids = request.form.getlist('assigned_classes')
             assigned_classes = ','.join(selected_class_ids) if selected_class_ids else ''
         
@@ -569,6 +620,36 @@ def admin_users_delete(user_id):
     conn.commit()
     flash('User deleted', 'success')
     return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/users/<int:user_id>/reset-password', methods=['GET', 'POST'])
+@login_required
+def admin_users_reset_password(user_id):
+    if not admin_required():
+        return redirect(url_for('index'))
+    conn = get_db()
+    row = conn.execute("SELECT * FROM user WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        flash('User not found', 'danger')
+        return redirect(url_for('admin_users'))
+    user = RowObject(row)
+    
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if not new_password:
+            flash('Password is required', 'danger')
+        elif new_password != confirm_password:
+            flash('Passwords do not match', 'danger')
+        else:
+            pw_hash = generate_password_hash(new_password)
+            conn.execute("UPDATE user SET password_hash = ? WHERE id = ?", (pw_hash, user_id))
+            conn.commit()
+            flash(f'Password reset successfully for {user.name}', 'success')
+            return redirect(url_for('admin_users'))
+    
+    return render_template('admin_reset_password.html', user=user)
 
 
 @app.route('/admin/classes')
@@ -1137,18 +1218,31 @@ def update_daily_excel(today_str):
     classes_rows = db_conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
     for krow in classes_rows:
         klass = RowObject(krow)
-        safe_name = get_safe_sheet_name(wb, klass.name)
-        if safe_name in wb.sheetnames:
-            ws = wb[safe_name]
+        
+        # Try to find existing sheet by matching class name
+        existing_sheet = None
+        for sheet_name in wb.sheetnames:
+            # Check if this sheet corresponds to the current class
+            # Remove invalid characters from class name for comparison
+            invalid_re = r"[:\\\\/?*\[\]]"
+            clean_class_name = re.sub(invalid_re, '-', klass.name).strip()[:31]
+            if sheet_name.startswith(clean_class_name):
+                existing_sheet = sheet_name
+                break
+        
+        if existing_sheet:
+            ws = wb[existing_sheet]
         else:
+            safe_name = get_safe_sheet_name(wb, klass.name)
             ws = wb.create_sheet(safe_name)
             ws.sheet_view.rightToLeft = True
-        # first two rows: date+class, then headers
+        
+        # Clear all existing content
         ws.delete_rows(1, ws.max_row)
         ws.append([f'التاريخ: {today_str}  الصف: {klass.name}'])
         # header row: names and periods placeholder
         students_rows = db_conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (klass.id,)).fetchall()
-        header = ['الطالب'] + [f'P{i+1}' for i in range(8)]
+        header = ['الطالب'] + [f'P{i+1}' for i in range(9)]
         ws.append(header)
         for srow in students_rows:
             s = RowObject(srow)
@@ -1212,21 +1306,89 @@ def staff_dashboard():
     if current_user.role != 'staff':
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
+    
     today = date.today().isoformat()
     conn = get_db()
-    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    user_id = int(current_user.get_id())
+    
+    # Get staff user's assigned classes
+    staff_row = conn.execute("SELECT classes FROM user WHERE id = ?", (user_id,)).fetchone()
+    assigned_class_ids = []
+    if staff_row and staff_row['classes']:
+        assigned_class_ids = [cid.strip() for cid in str(staff_row['classes']).split(',') if cid.strip()]
+    
     summary = []
+    
+    # If staff has assigned classes, show only those; otherwise show all
+    if assigned_class_ids:
+        placeholders = ','.join(['?' for _ in assigned_class_ids])
+        classes_rows = conn.execute(f"SELECT * FROM school_class WHERE id IN ({placeholders}) ORDER BY name", assigned_class_ids).fetchall()
+    else:
+        classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    
     for krow in classes_rows:
         klass = RowObject(krow)
-        students_rows = conn.execute("SELECT * FROM student WHERE class_id = ?", (klass.id,)).fetchall()
-        total = len(students_rows)
-        absences_row = conn.execute("SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND status = ?", (today, klass.id, 'absent')).fetchone()
-        absences = absences_row['cnt'] if absences_row else 0
+        
+        # Get all students in the class
+        students_rows = conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (klass.id,)).fetchall()
+        students_data = []
+        
+        present_count = 0
+        absent_count = 0
+        not_recorded_count = 0
+        
+        for srow in students_rows:
+            student = RowObject(srow)
+            # Get today's attendance for this student across all periods
+            attendance_rows = conn.execute(
+                "SELECT period, status FROM attendance WHERE student_id = ? AND date = ? AND class_id = ? ORDER BY period",
+                (student.id, today, klass.id)
+            ).fetchall()
+            
+            # Build period status dictionary
+            period_status = {}
+            student_has_any_record = False
+            student_is_absent_today = False
+            
+            for att_row in attendance_rows:
+                period_status[att_row['period']] = att_row['status']
+                student_has_any_record = True
+                if att_row['status'] == 'absent':
+                    student_is_absent_today = True
+            
+            # Count overall status
+            if not student_has_any_record:
+                not_recorded_count += 1
+                overall_status = 'not_recorded'
+            elif student_is_absent_today:
+                absent_count += 1
+                overall_status = 'absent'
+            else:
+                present_count += 1
+                overall_status = 'present'
+            
+            students_data.append({
+                'student': student,
+                'period_status': period_status,
+                'overall_status': overall_status
+            })
+        
         class_cp = get_current_period_for_class(klass.id)[0]
-        summary.append({'class': klass, 'total': total, 'absences': absences, 'current_period': class_cp})
-    # global current period
+        
+        summary.append({
+            'class': klass,
+            'total': len(students_rows),
+            'present': present_count,
+            'absent': absent_count,
+            'not_recorded': not_recorded_count,
+            'current_period': class_cp,
+            'students': students_data
+        })
+    
+    # Global current period
     current_period, _ = get_current_period_for_class(None)
-    return render_template('staff_dashboard.html', summary=summary, today=today, current_period=current_period)
+    
+    return render_template('staff_dashboard.html', summary=summary, today=today, current_period=current_period, has_assigned_classes=bool(assigned_class_ids))
 
 
 @app.route('/staff/export_excel')

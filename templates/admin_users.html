@@ -28,14 +28,14 @@
             <td>{{u.email or '-'}}</td>
             <td>{{u.national_id or '-'}}</td>
             <td>
-                {% if u.role == 'teacher' and u.classes %}
+                {% if (u.role == 'teacher' or u.role == 'staff') and u.classes %}
                 {% set class_ids = u.classes.split(',') %}
                 {% for cid in class_ids %}
                 {% if cid.strip() %}
                 <span class="badge bg-info me-1">{{ classes_dict.get(cid.strip(), 'Unknown') }}</span>
                 {% endif %}
                 {% endfor %}
-                {% elif u.role == 'teacher' %}
+                {% elif u.role == 'teacher' or u.role == 'staff' %}
                 <span class="text-muted">No classes assigned</span>
                 {% else %}
                 <span class="text-muted">-</span>
@@ -44,6 +44,9 @@
             <td>
                 <a class="btn btn-sm btn-secondary" href="{{ url_for('admin_users_edit', user_id=u.id) }}">
                     <i class="bi bi-pencil"></i> Edit
+                </a>
+                <a class="btn btn-sm btn-warning" href="{{ url_for('admin_users_reset_password', user_id=u.id) }}">
+                    <i class="bi bi-key"></i> Reset Password
                 </a>
                 <form method="post" action="{{ url_for('admin_users_delete', user_id=u.id) }}"
                     style="display:inline-block" onsubmit="return confirm('Delete user?')">

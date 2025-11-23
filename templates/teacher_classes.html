@@ -4,11 +4,14 @@
   <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary">
     <i class="bi bi-box-arrow-left"></i> تسجيل الخروج
   </a>
+  <a href="{{ url_for('change_password') }}" class="btn btn-warning">
+    <i class="bi bi-key"></i> تغيير كلمة المرور
+  </a>
 </div>
 <div class="container mt-4">
   <div class="row">
     <div class="col-md-8 offset-md-2">
-      <h2 class="mb-4">الصفوف المسندة</h2>
+      <h2 class="mb-4">تسجيل الحضور/الغياب للصفوف : </h2>
 
       {% if classes %}
       <div class="list-group">

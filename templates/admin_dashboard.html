@@ -7,6 +7,12 @@
 <div class="mb-3">
     <a class="btn btn-secondary" href="/admin/import">Import Excel</a>
     <a class="btn btn-primary" href="/admin/export_pdf">Export PDF (today)</a>
+    <a class="btn btn-warning" href="{{ url_for('change_password') }}">
+        <i class="bi bi-key"></i> Change My Password
+    </a>
+    <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">
+        <i class="bi bi-box-arrow-right"></i> Logout
+    </a>
 </div>
 
 <h5>Administration</h5>

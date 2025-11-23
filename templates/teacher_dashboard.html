@@ -1,13 +1,23 @@
 {% extends 'layout.html' %}
 {% block content %}
+<div class="mb-3">
+    <a href="{{ url_for('teacher_classes') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-box-arrow-left"></i> رجوع إلى الصفوف
+    </a>
+
+    <a href="{{ url_for('logout') }}" class="btn btn-outline-danger">
+        <i class="bi bi-box-arrow-right"></i> تسجيل الخروج
+    </a>
+</div>
 <h3>المدرس: {{teacher.name}} | الصف : {{klass.name}} | التاريخ: {{today}}</h3>
 {% if current_period %}
 <div class="alert alert-info">الحصة الحالية: <strong>الحصة {{ current_period }}</strong></div>
 {% endif %}
 <form method="post">
     <div class="mb-3">
-        <label class="form-label">الحصة</label>
+
         {% if current_period %}
+        <label class="form-label">الحصة</label>
         <input type="hidden" name="period" value="{{ current_period }}">
         <select name="period_disabled" class="form-select" aria-label="Current period" disabled>
             {% if periods_today and periods_today|length > 0 %}
@@ -20,7 +30,7 @@
             {% endif %}
         </select>
         {% else %}
-        <label class="form-label">لا توجد حصة في الوقت الحالي</label>
+        <h2><label class="form-label">لا توجد حصة في الوقت الحالي</label></h2>
         <!--
 <select name="period" class="form-select" aria-label="Select period">
             {% if periods_today and periods_today|length > 0 %}
@@ -37,6 +47,7 @@
         -->
         {% endif %}
     </div>
+    {% if current_period %}
     <table class="table table-striped">
         <thead>
             <tr>
@@ -72,7 +83,7 @@
             {% endfor %}
         </tbody>
     </table>
-    {% if current_period %}
+
     <button type="submit" class="btn btn-success">تسجيل الحضور</button>
     {% endif %}
 </form>
