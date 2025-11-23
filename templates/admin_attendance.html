@@ -22,11 +22,11 @@
         {% for r in records %}
         <tr>
             <td>{{r.id}}</td>
-            <td>{{ r.student.name if r.student else r.student_id }}</td>
-            <td>{{ r.klass.name if r.klass else r.class_id }}</td>
+            <td>{{ r.student_name or r.student_id }}</td>
+            <td>{{ r.class_name or r.class_id }}</td>
             <td>{{r.period}}</td>
             <td>{{r.status}}</td>
-            <td>{{ r.teacher.name if r.teacher else r.teacher_id }}</td>
+            <td>{{ r.teacher_name or r.teacher_id }}</td>
             <td>
                 <form method="post" action="{{ url_for('admin_attendance_delete', att_id=r.id) }}"
                     style="display:inline-block" onsubmit="return confirm('Delete attendance record?')">

@@ -8,7 +8,9 @@
             <th>ID</th>
             <th>Name</th>
             <th>Role</th>
+            <th>Email</th>
             <th>National ID</th>
+            <th>Assigned Classes</th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -17,13 +19,37 @@
         <tr>
             <td>{{u.id}}</td>
             <td>{{u.name}}</td>
-            <td>{{u.role}}</td>
-            <td>{{u.national_id or ''}}</td>
             <td>
-                <a class="btn btn-sm btn-secondary" href="{{ url_for('admin_users_edit', user_id=u.id) }}">Edit</a>
+                <span
+                    class="badge bg-{% if u.role=='admin' %}danger{% elif u.role=='teacher' %}primary{% elif u.role=='staff' %}success{% else %}secondary{% endif %}">
+                    {{u.role}}
+                </span>
+            </td>
+            <td>{{u.email or '-'}}</td>
+            <td>{{u.national_id or '-'}}</td>
+            <td>
+                {% if u.role == 'teacher' and u.classes %}
+                {% set class_ids = u.classes.split(',') %}
+                {% for cid in class_ids %}
+                {% if cid.strip() %}
+                <span class="badge bg-info me-1">{{ classes_dict.get(cid.strip(), 'Unknown') }}</span>
+                {% endif %}
+                {% endfor %}
+                {% elif u.role == 'teacher' %}
+                <span class="text-muted">No classes assigned</span>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </td>
+            <td>
+                <a class="btn btn-sm btn-secondary" href="{{ url_for('admin_users_edit', user_id=u.id) }}">
+                    <i class="bi bi-pencil"></i> Edit
+                </a>
                 <form method="post" action="{{ url_for('admin_users_delete', user_id=u.id) }}"
                     style="display:inline-block" onsubmit="return confirm('Delete user?')">
-                    <button class="btn btn-sm btn-danger">Delete</button>
+                    <button class="btn btn-sm btn-danger">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
                 </form>
             </td>
         </tr>

@@ -2,11 +2,13 @@ import os
 from datetime import date, datetime
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
-from flask_sqlalchemy import SQLAlchemy
+
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 import click
 from flask_migrate import Migrate
+import sqlite3
+from flask import g
 
 import pandas as pd
 from io import BytesIO
@@ -17,18 +19,86 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from sqlalchemy import or_, text
 import re
+from openpyxl.styles import Font, PatternFill, Alignment
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
-db = SQLAlchemy(app)
-migrate = Migrate(app, db)
+migrate = None
 login_manager = LoginManager(app)
 login_manager.login_view = 'admin_login'
+
+# Lightweight db stub: keep legacy SQLAlchemy model definitions import-safe
+# Model classes remain in the file for reference only; runtime DB access uses sqlite3 helpers.
+class _DBStub:
+    class Model:
+        pass
+    def Column(self, *args, **kwargs):
+        return None
+    Integer = int
+    def String(self, *args, **kwargs):
+        return str
+    def ForeignKey(self, *args, **kwargs):
+        return None
+    def UniqueConstraint(self, *args, **kwargs):
+        return None
+    def relationship(self, *args, **kwargs):
+        return None
+
+db = _DBStub()
+
+# SQLite helper (parallel, for a lightweight DB layer)
+DATABASE = os.path.join(basedir, 'app.db')
+
+def get_db():
+    db_conn = getattr(g, '_database', None)
+    if db_conn is None:
+        db_conn = sqlite3.connect(DATABASE, detect_types=sqlite3.PARSE_DECLTYPES)
+        db_conn.row_factory = sqlite3.Row
+        g._database = db_conn
+    return db_conn
+
+
+@app.teardown_appcontext
+def close_db(exc):
+    db_conn = getattr(g, '_database', None)
+    if db_conn is not None:
+        db_conn.close()
+
+
+class RowObject:
+    """Wrap sqlite3.Row to allow attribute access used by templates."""
+    def __init__(self, row):
+        self._r = row
+    def __getattr__(self, name):
+        try:
+            return self._r[name]
+        except Exception:
+            raise AttributeError(name)
+
+
+class SimpleUser(UserMixin):
+    """Lightweight user adapter for Flask-Login backed by sqlite rows."""
+    def __init__(self, row):
+        self.id = row['id']
+        self.name = row['name']
+        self.role = row['role']
+        self.password_hash = row['password_hash'] if 'password_hash' in row.keys() else None
+
+    def is_authenticated(self):
+        return True
+    def is_active(self):
+        return True
+    def is_anonymous(self):
+        return False
+    def get_id(self):
+        return str(self.id)
+    def check_password(self, pw):
+        if not self.password_hash:
+            return False
+        return check_password_hash(self.password_hash, pw)
 
 
 ### Models (simple definitions here) ###
@@ -93,24 +163,34 @@ class Period(db.Model):
 
 def get_current_period_for_class(class_id=None):
     """Return current period number for today for given class_id or global (None).
-    Looks for Period entries whose time range includes now. Returns (period_number, Period) or (None, None).
+    Uses sqlite `period` table. Returns (period_number, row) or (None, None).
     """
     weekday = date.today().weekday()
-    periods_today = Period.query.filter(Period.day_of_week == weekday).filter(
-        or_(Period.class_id == None, Period.class_id == class_id) if class_id is None else
-        or_(Period.class_id == None, Period.class_id == class_id)
-    ).order_by(Period.period).all()
+    conn = get_db()
+    if class_id is None:
+        rows = conn.execute(
+            "SELECT * FROM period WHERE day_of_week = ? AND class_id IS NULL ORDER BY period",
+            (weekday,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM period WHERE day_of_week = ? AND (class_id IS NULL OR class_id = ?) ORDER BY period",
+            (weekday, class_id),
+        ).fetchall()
+
     now = datetime.now().time()
+
     def parse_t(tstr):
         try:
             return datetime.strptime(tstr, '%H:%M').time()
         except Exception:
             return None
-    for p in periods_today:
-        st = parse_t(p.start_time) if p.start_time else None
-        en = parse_t(p.end_time) if p.end_time else None
+
+    for r in rows:
+        st = parse_t(r['start_time']) if r['start_time'] else None
+        en = parse_t(r['end_time']) if r['end_time'] else None
         if st and en and st <= now <= en:
-            return p.period, p
+            return r['period'], r
     return None, None
 
 
@@ -129,19 +209,101 @@ class Attendance(db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    conn = get_db()
+    row = conn.execute("SELECT * FROM user WHERE id = ?", (int(user_id),)).fetchone()
+    return SimpleUser(row) if row else None
 
 
 @app.cli.command('init-db')
 def init_db():
-    db.create_all()
+    """Initialize DB tables using sqlite3 (safe to call multiple times)."""
+    conn = get_db()
+    cur = conn.cursor()
+    # create tables
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS user (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        password_hash TEXT,
+        national_id TEXT,
+        classes TEXT,
+        email TEXT
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS school_class (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS subject (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS student (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        class_id INTEGER,
+        national_id TEXT,
+        FOREIGN KEY(class_id) REFERENCES school_class(id)
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS period (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day_of_week INTEGER NOT NULL,
+        period INTEGER NOT NULL,
+        start_time TEXT,
+        end_time TEXT,
+        class_id INTEGER,
+        subject_id INTEGER,
+        UNIQUE(day_of_week, period, class_id),
+        FOREIGN KEY(class_id) REFERENCES school_class(id),
+        FOREIGN KEY(subject_id) REFERENCES subject(id)
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER,
+        date TEXT NOT NULL,
+        period INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        class_id INTEGER,
+        teacher_id INTEGER,
+        UNIQUE(student_id, date, period),
+        FOREIGN KEY(student_id) REFERENCES student(id),
+        FOREIGN KEY(class_id) REFERENCES school_class(id),
+        FOREIGN KEY(teacher_id) REFERENCES user(id)
+    );
+    """)
+    conn.commit()
+
     # create default admin if not exists
-    if not User.query.filter_by(role='admin').first():
-        admin = User(name='Administrator', role='admin')
-        admin.set_password('admin')
-        db.session.add(admin)
-        db.session.commit()
+    r = conn.execute("SELECT id FROM user WHERE role = ? LIMIT 1", ('admin',)).fetchone()
+    if not r:
+        pw = generate_password_hash('admin')
+        conn.execute("INSERT INTO user (name, role, password_hash) VALUES (?,?,?)",
+                     ('Administrator', 'admin', pw))
+        conn.commit()
         print('Created default admin (username: Administrator, password: admin)')
+    else:
+        print('DB initialized')
+
+    # Ensure `email` column exists on `user` table for teacher email/password login
+    try:
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(user)").fetchall()]
+        if 'email' not in cols:
+            conn.execute("ALTER TABLE user ADD COLUMN email TEXT")
+            conn.commit()
+            print('Added `email` column to user table')
+    except Exception:
+        # non-fatal: schema migration best-effort
+        pass
 
 
 @app.cli.command('add-teacher')
@@ -151,17 +313,32 @@ def init_db():
 @click.option('--ph1', default=None, help='Optional national id for the teacher')
 def add_teacher(name, password, nid):
     """Add a teacher user to the database: flask --app app add-teacher "Name" --password pw"""
-    if User.query.filter_by(name=name, role='teacher').first():
+    conn = get_db()
+    # check exists
+    exists = conn.execute("SELECT id FROM user WHERE name = ? AND role = ?", (name, 'teacher')).fetchone()
+    if exists:
         print(f'Teacher "{name}" already exists')
         return
-    t = User(name=name, role='teacher')
-    if password:
-        t.set_password(password)
-    if nid:
-        t.national_id = nid
-    db.session.add(t)
-    db.session.commit()
+    pw_hash = generate_password_hash(password) if password else None
+    conn.execute("INSERT INTO user (name, role, password_hash, national_id) VALUES (?,?,?,?)",
+                 (name, 'teacher', pw_hash, nid))
+    conn.commit()
     print(f'Added teacher: {name}')
+
+
+@app.cli.command('set-teacher-email')
+@click.argument('name')
+@click.argument('email')
+def set_teacher_email(name, email):
+    """Set or update email for a teacher: flask --app app set-teacher-email "Name" email@example.com"""
+    conn = get_db()
+    teacher = conn.execute("SELECT id FROM user WHERE name = ? AND role = ?", (name, 'teacher')).fetchone()
+    if not teacher:
+        print(f'Teacher "{name}" not found')
+        return
+    conn.execute("UPDATE user SET email = ? WHERE id = ?", (email, teacher['id']))
+    conn.commit()
+    print(f'Updated email for teacher "{name}" to {email}')
 
 
 @app.cli.command('import-teachers')
@@ -183,21 +360,19 @@ def import_teachers(path):
     else:
         # take first sheet
         df = next(iter(sheets.values()))
+    conn = get_db()
     added = 0
     for _, row in df.iterrows():
         name = str(row.get('name') or row.get('Name') or '').strip()
         if not name:
             continue
-        if User.query.filter_by(name=name, role='teacher').first():
+        exists = conn.execute("SELECT id FROM user WHERE name = ? AND role = ?", (name, 'teacher')).fetchone()
+        if exists:
             continue
-        t = User(name=name, role='teacher')
-        # try common national id column names
         nid = row.get('national_id') or row.get('national id') or row.get('nid') or row.get('NationalID') or row.get('NID')
-        if nid is not None:
-            t.national_id = str(nid).strip()
-        db.session.add(t)
+        conn.execute("INSERT INTO user (name, role, national_id) VALUES (?,?,?)", (name, 'teacher', str(nid).strip() if nid is not None else None))
         added += 1
-    db.session.commit()
+    conn.commit()
     print(f'Imported {added} teachers from {path}')
 
 
@@ -207,18 +382,18 @@ def import_teachers(path):
 @click.option('--nid', default=None, help='Optional national id for the student')
 def add_student(name, class_name, nid):
     """Add a student: flask --app app add-student "Name" --class "Class name" --nid 12345"""
-    klass = None
+    conn = get_db()
+    class_id = None
     if class_name:
-        klass = SchoolClass.query.filter_by(name=class_name).first()
-        if not klass:
-            klass = SchoolClass(name=class_name)
-            db.session.add(klass)
-            db.session.commit()
-    s = Student(name=name, class_id=klass.id if klass else None)
-    if nid:
-        s.national_id = nid
-    db.session.add(s)
-    db.session.commit()
+        c = conn.execute("SELECT id FROM school_class WHERE name = ?", (class_name,)).fetchone()
+        if c:
+            class_id = c['id']
+        else:
+            res = conn.execute("INSERT INTO school_class (name) VALUES (?)", (class_name,))
+            conn.commit()
+            class_id = conn.execute("SELECT id FROM school_class WHERE name = ?", (class_name,)).fetchone()['id']
+    conn.execute("INSERT INTO student (name, class_id, national_id) VALUES (?,?,?)", (name, class_id, nid))
+    conn.commit()
     print(f'Added student: {name}')
 
 
@@ -233,10 +408,13 @@ def admin_login():
     if request.method == 'POST':
         name = request.form['name']
         pw = request.form['password']
-        user = User.query.filter_by(name=name, role='admin').first()
-        if user and user.check_password(pw):
-            login_user(user)
-            return redirect(url_for('admin_dashboard'))
+        conn = get_db()
+        row = conn.execute("SELECT * FROM user WHERE name = ? AND role = ? LIMIT 1", (name, 'admin')).fetchone()
+        if row:
+            user = SimpleUser(row)
+            if user.check_password(pw):
+                login_user(user)
+                return redirect(url_for('admin_dashboard'))
         flash('Invalid credentials', 'danger')
     return render_template('admin_login.html')
 
@@ -246,10 +424,13 @@ def staff_login():
     if request.method == 'POST':
         name = request.form['name']
         pw = request.form['password']
-        user = User.query.filter_by(name=name, role='staff').first()
-        if user and user.check_password(pw):
-            login_user(user)
-            return redirect(url_for('staff_dashboard'))
+        conn = get_db()
+        row = conn.execute("SELECT * FROM user WHERE name = ? AND role = ? LIMIT 1", (name, 'staff')).fetchone()
+        if row:
+            user = SimpleUser(row)
+            if user.check_password(pw):
+                login_user(user)
+                return redirect(url_for('staff_dashboard'))
         flash('Invalid credentials', 'danger')
     return render_template('staff_login.html')
 
@@ -266,13 +447,17 @@ def admin_dashboard():
     if current_user.role != 'admin':
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
-    classes = SchoolClass.query.all()
-    teachers = User.query.filter_by(role='teacher').all()
-    subjects = Subject.query.all()
+    conn = get_db()
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
+    teachers_rows = conn.execute("SELECT * FROM user WHERE role = ? ORDER BY name", ('teacher',)).fetchall()
+    teachers = [RowObject(r) for r in teachers_rows]
+    subjects_rows = conn.execute("SELECT * FROM subject ORDER BY name").fetchall()
+    subjects = [RowObject(r) for r in subjects_rows]
     # compute global current period (no specific class)
     current_period, _ = get_current_period_for_class(None)
     # compute per-class current period map
-    class_current = {c.id: get_current_period_for_class(c.id)[0] for c in classes}
+    class_current = {c.id: (get_current_period_for_class(c.id)[0] if get_current_period_for_class(c.id)[0] is not None else None) for c in classes}
     return render_template('admin_dashboard.html', classes=classes, teachers=teachers, subjects=subjects, current_period=current_period, class_current=class_current)
 
 
@@ -291,8 +476,15 @@ def admin_required():
 def admin_users():
     if not admin_required():
         return redirect(url_for('index'))
-    users = User.query.all()
-    return render_template('admin_users.html', users=users)
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM user ORDER BY name").fetchall()
+    users = [RowObject(r) for r in rows]
+    
+    # Fetch all classes for lookup
+    classes_rows = conn.execute("SELECT * FROM school_class").fetchall()
+    classes_dict = {str(r['id']): r['name'] for r in classes_rows}
+    
+    return render_template('admin_users.html', users=users, classes_dict=classes_dict)
 
 
 @app.route('/admin/users/create', methods=['GET', 'POST'])
@@ -300,21 +492,32 @@ def admin_users():
 def admin_users_create():
     if not admin_required():
         return redirect(url_for('index'))
+    conn = get_db()
+    
+    # Fetch all classes for assignment selection
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
+    
     if request.method == 'POST':
         name = request.form['name']
         role = request.form['role']
         password = request.form.get('password') or None
         nid = request.form.get('national_id') or None
-        u = User(name=name, role=role)
-        if password:
-            u.set_password(password)
-        if nid:
-            u.national_id = nid
-        db.session.add(u)
-        db.session.commit()
+        email = request.form.get('email') or None
+        pw_hash = generate_password_hash(password) if password else None
+        
+        # Handle class assignments for teachers
+        assigned_classes = ''
+        if role == 'teacher':
+            selected_class_ids = request.form.getlist('assigned_classes')
+            assigned_classes = ','.join(selected_class_ids) if selected_class_ids else ''
+        
+        conn.execute("INSERT INTO user (name, role, password_hash, national_id, email, classes) VALUES (?,?,?,?,?,?)",
+                     (name, role, pw_hash, nid, email, assigned_classes))
+        conn.commit()
         flash('User created', 'success')
         return redirect(url_for('admin_users'))
-    return render_template('admin_user_form.html', user=None)
+    return render_template('admin_user_form.html', user=None, classes=classes)
 
 
 @app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
@@ -322,18 +525,38 @@ def admin_users_create():
 def admin_users_edit(user_id):
     if not admin_required():
         return redirect(url_for('index'))
-    user = User.query.get_or_404(user_id)
+    conn = get_db()
+    row = conn.execute("SELECT * FROM user WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        flash('User not found', 'danger')
+        return redirect(url_for('admin_users'))
+    user = RowObject(row)
+    
+    # Fetch all classes for assignment selection
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
+    
     if request.method == 'POST':
-        user.name = request.form['name']
-        user.role = request.form['role']
+        name = request.form['name']
+        role = request.form['role']
         pw = request.form.get('password')
-        if pw:
-            user.set_password(pw)
-        user.national_id = request.form.get('national_id') or None
-        db.session.commit()
+        nid = request.form.get('national_id') or None
+        email = request.form.get('email') or None
+        pw_hash = generate_password_hash(pw) if pw else row['password_hash']
+        
+        # Handle class assignments for teachers
+        assigned_classes = ''
+        if role == 'teacher':
+            selected_class_ids = request.form.getlist('assigned_classes')
+            assigned_classes = ','.join(selected_class_ids) if selected_class_ids else ''
+        
+        conn.execute("UPDATE user SET name = ?, role = ?, password_hash = ?, national_id = ?, email = ?, classes = ? WHERE id = ?",
+                     (name, role, pw_hash, nid, email, assigned_classes, user_id))
+        conn.commit()
         flash('User updated', 'success')
         return redirect(url_for('admin_users'))
-    return render_template('admin_user_form.html', user=user)
+    
+    return render_template('admin_user_form.html', user=user, classes=classes)
 
 
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
@@ -341,9 +564,9 @@ def admin_users_edit(user_id):
 def admin_users_delete(user_id):
     if not admin_required():
         return redirect(url_for('index'))
-    user = User.query.get_or_404(user_id)
-    db.session.delete(user)
-    db.session.commit()
+    conn = get_db()
+    conn.execute("DELETE FROM user WHERE id = ?", (user_id,))
+    conn.commit()
     flash('User deleted', 'success')
     return redirect(url_for('admin_users'))
 
@@ -353,7 +576,9 @@ def admin_users_delete(user_id):
 def admin_classes():
     if not admin_required():
         return redirect(url_for('index'))
-    classes = SchoolClass.query.all()
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in rows]
     return render_template('admin_classes.html', classes=classes)
 
 
@@ -364,9 +589,9 @@ def admin_classes_create():
         return redirect(url_for('index'))
     if request.method == 'POST':
         name = request.form['name']
-        c = SchoolClass(name=name)
-        db.session.add(c)
-        db.session.commit()
+        conn = get_db()
+        conn.execute("INSERT INTO school_class (name) VALUES (?)", (name,))
+        conn.commit()
         flash('Class created', 'success')
         return redirect(url_for('admin_classes'))
     return render_template('admin_class_form.html', klass=None)
@@ -377,10 +602,16 @@ def admin_classes_create():
 def admin_classes_edit(class_id):
     if not admin_required():
         return redirect(url_for('index'))
-    klass = SchoolClass.query.get_or_404(class_id)
+    conn = get_db()
+    row = conn.execute("SELECT * FROM school_class WHERE id = ?", (class_id,)).fetchone()
+    if not row:
+        flash('Class not found', 'danger')
+        return redirect(url_for('admin_classes'))
+    klass = RowObject(row)
     if request.method == 'POST':
-        klass.name = request.form['name']
-        db.session.commit()
+        name = request.form['name']
+        conn.execute("UPDATE school_class SET name = ? WHERE id = ?", (name, class_id))
+        conn.commit()
         flash('Class updated', 'success')
         return redirect(url_for('admin_classes'))
     return render_template('admin_class_form.html', klass=klass)
@@ -391,9 +622,9 @@ def admin_classes_edit(class_id):
 def admin_classes_delete(class_id):
     if not admin_required():
         return redirect(url_for('index'))
-    klass = SchoolClass.query.get_or_404(class_id)
-    db.session.delete(klass)
-    db.session.commit()
+    conn = get_db()
+    conn.execute("DELETE FROM school_class WHERE id = ?", (class_id,))
+    conn.commit()
     flash('Class deleted', 'success')
     return redirect(url_for('admin_classes'))
 
@@ -403,7 +634,9 @@ def admin_classes_delete(class_id):
 def admin_subjects():
     if not admin_required():
         return redirect(url_for('index'))
-    subjects = Subject.query.all()
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM subject ORDER BY name").fetchall()
+    subjects = [RowObject(r) for r in rows]
     return render_template('admin_subjects.html', subjects=subjects)
 
 
@@ -414,9 +647,9 @@ def admin_subjects_create():
         return redirect(url_for('index'))
     if request.method == 'POST':
         name = request.form['name']
-        s = Subject(name=name)
-        db.session.add(s)
-        db.session.commit()
+        conn = get_db()
+        conn.execute("INSERT INTO subject (name) VALUES (?)", (name,))
+        conn.commit()
         flash('Subject created', 'success')
         return redirect(url_for('admin_subjects'))
     return render_template('admin_subject_form.html', subject=None)
@@ -427,10 +660,16 @@ def admin_subjects_create():
 def admin_subjects_edit(subject_id):
     if not admin_required():
         return redirect(url_for('index'))
-    subject = Subject.query.get_or_404(subject_id)
+    conn = get_db()
+    row = conn.execute("SELECT * FROM subject WHERE id = ?", (subject_id,)).fetchone()
+    if not row:
+        flash('Subject not found', 'danger')
+        return redirect(url_for('admin_subjects'))
+    subject = RowObject(row)
     if request.method == 'POST':
-        subject.name = request.form['name']
-        db.session.commit()
+        name = request.form['name']
+        conn.execute("UPDATE subject SET name = ? WHERE id = ?", (name, subject_id))
+        conn.commit()
         flash('Subject updated', 'success')
         return redirect(url_for('admin_subjects'))
     return render_template('admin_subject_form.html', subject=subject)
@@ -441,9 +680,9 @@ def admin_subjects_edit(subject_id):
 def admin_subjects_delete(subject_id):
     if not admin_required():
         return redirect(url_for('index'))
-    subject = Subject.query.get_or_404(subject_id)
-    db.session.delete(subject)
-    db.session.commit()
+    conn = get_db()
+    conn.execute("DELETE FROM subject WHERE id = ?", (subject_id,))
+    conn.commit()
     flash('Subject deleted', 'success')
     return redirect(url_for('admin_subjects'))
 
@@ -457,9 +696,13 @@ DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sun
 def admin_periods():
     if not admin_required():
         return redirect(url_for('index'))
-    periods = Period.query.order_by(Period.day_of_week, Period.period).all()
-    classes = SchoolClass.query.all()
-    subjects = Subject.query.all()
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM period ORDER BY day_of_week, period").fetchall()
+    periods = [RowObject(r) for r in rows]
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
+    subjects_rows = conn.execute("SELECT * FROM subject ORDER BY name").fetchall()
+    subjects = [RowObject(r) for r in subjects_rows]
     return render_template('admin_periods.html', periods=periods, classes=classes, subjects=subjects, days=DAYS)
 
 
@@ -468,8 +711,11 @@ def admin_periods():
 def admin_periods_create():
     if not admin_required():
         return redirect(url_for('index'))
-    classes = SchoolClass.query.all()
-    subjects = Subject.query.all()
+    conn = get_db()
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
+    subjects_rows = conn.execute("SELECT * FROM subject ORDER BY name").fetchall()
+    subjects = [RowObject(r) for r in subjects_rows]
     if request.method == 'POST':
         day = int(request.form.get('day_of_week'))
         period_no = int(request.form.get('period'))
@@ -477,15 +723,14 @@ def admin_periods_create():
         end_time = request.form.get('end_time') or None
         class_id = request.form.get('class_id') or None
         subject_id = request.form.get('subject_id') or None
-        # validation: prevent duplicate day+period for same class (or global None)
-        existing = Period.query.filter_by(day_of_week=day, period=period_no, class_id=class_id if class_id else None).first()
+        existing = conn.execute("SELECT id FROM period WHERE day_of_week = ? AND period = ? AND (class_id IS NULL OR class_id = ?)",
+                                (day, period_no, class_id)).fetchone()
         if existing:
             flash('A period with the same day/number and class already exists', 'warning')
             return redirect(url_for('admin_periods'))
-        p = Period(day_of_week=day, period=period_no, start_time=start_time, end_time=end_time,
-                   class_id=class_id if class_id else None, subject_id=subject_id if subject_id else None)
-        db.session.add(p)
-        db.session.commit()
+        conn.execute("INSERT INTO period (day_of_week, period, start_time, end_time, class_id, subject_id) VALUES (?,?,?,?,?,?)",
+                     (day, period_no, start_time, end_time, class_id if class_id else None, subject_id if subject_id else None))
+        conn.commit()
         flash('Period created', 'success')
         return redirect(url_for('admin_periods'))
     return render_template('admin_period_form.html', period=None, classes=classes, subjects=subjects, days=DAYS)
@@ -496,9 +741,16 @@ def admin_periods_create():
 def admin_periods_edit(period_id):
     if not admin_required():
         return redirect(url_for('index'))
-    p = Period.query.get_or_404(period_id)
-    classes = SchoolClass.query.all()
-    subjects = Subject.query.all()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM period WHERE id = ?", (period_id,)).fetchone()
+    if not row:
+        flash('Period not found', 'danger')
+        return redirect(url_for('admin_periods'))
+    p = RowObject(row)
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
+    subjects_rows = conn.execute("SELECT * FROM subject ORDER BY name").fetchall()
+    subjects = [RowObject(r) for r in subjects_rows]
     if request.method == 'POST':
         new_day = int(request.form.get('day_of_week'))
         new_period = int(request.form.get('period'))
@@ -506,18 +758,14 @@ def admin_periods_edit(period_id):
         new_end = request.form.get('end_time') or None
         new_class_id = request.form.get('class_id') or None
         new_subject_id = request.form.get('subject_id') or None
-        # check duplicates excluding current record
-        existing = Period.query.filter_by(day_of_week=new_day, period=new_period, class_id=new_class_id if new_class_id else None).first()
-        if existing and existing.id != p.id:
+        existing = conn.execute("SELECT id FROM period WHERE day_of_week = ? AND period = ? AND (class_id IS NULL OR class_id = ?)",
+                                (new_day, new_period, new_class_id)).fetchone()
+        if existing and existing['id'] != period_id:
             flash('Another period with same day/number and class exists', 'warning')
             return redirect(url_for('admin_periods'))
-        p.day_of_week = new_day
-        p.period = new_period
-        p.start_time = new_start
-        p.end_time = new_end
-        p.class_id = new_class_id or None
-        p.subject_id = new_subject_id or None
-        db.session.commit()
+        conn.execute("UPDATE period SET day_of_week = ?, period = ?, start_time = ?, end_time = ?, class_id = ?, subject_id = ? WHERE id = ?",
+                     (new_day, new_period, new_start, new_end, new_class_id if new_class_id else None, new_subject_id if new_subject_id else None, period_id))
+        conn.commit()
         flash('Period updated', 'success')
         return redirect(url_for('admin_periods'))
     return render_template('admin_period_form.html', period=p, classes=classes, subjects=subjects, days=DAYS)
@@ -528,9 +776,9 @@ def admin_periods_edit(period_id):
 def admin_periods_delete(period_id):
     if not admin_required():
         return redirect(url_for('index'))
-    p = Period.query.get_or_404(period_id)
-    db.session.delete(p)
-    db.session.commit()
+    conn = get_db()
+    conn.execute("DELETE FROM period WHERE id = ?", (period_id,))
+    conn.commit()
     flash('Period deleted', 'success')
     return redirect(url_for('admin_periods'))
 
@@ -540,10 +788,9 @@ def apply_unique_index():
     """Apply unique index for Period (safe for SQLite)."""
     # create unique index if not exists (SQLite supports IF NOT EXISTS)
     try:
-        sql = "CREATE UNIQUE INDEX IF NOT EXISTS uq_period_day_period_class_idx ON period (day_of_week, period, class_id);"
-        with db.engine.connect() as conn:
-            conn.execute(text(sql))
-            conn.commit()
+        conn = get_db()
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_period_day_period_class_idx ON period (day_of_week, period, class_id);")
+        conn.commit()
         print('Unique index applied (if it did not already exist).')
     except Exception as e:
         print('Failed to apply unique index:', e)
@@ -554,8 +801,19 @@ def apply_unique_index():
 def admin_students():
     if not admin_required():
         return redirect(url_for('index'))
-    students = Student.query.all()
-    classes = SchoolClass.query.all()
+    conn = get_db()
+    # fetch students with their class name (LEFT JOIN to include students without a class)
+    rows = conn.execute(
+        """
+        SELECT s.*, c.name AS class_name
+        FROM student s
+        LEFT JOIN school_class c ON s.class_id = c.id
+        ORDER BY s.class_id
+        """
+    ).fetchall()
+    students = [RowObject(r) for r in rows]
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
     return render_template('admin_students.html', students=students, classes=classes)
 
 
@@ -564,16 +822,15 @@ def admin_students():
 def admin_students_create():
     if not admin_required():
         return redirect(url_for('index'))
-    classes = SchoolClass.query.all()
+    conn = get_db()
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
     if request.method == 'POST':
         name = request.form['name']
         class_id = request.form.get('class_id') or None
         nid = request.form.get('national_id') or None
-        s = Student(name=name, class_id=class_id)
-        if nid:
-            s.national_id = nid
-        db.session.add(s)
-        db.session.commit()
+        conn.execute("INSERT INTO student (name, class_id, national_id) VALUES (?,?,?)", (name, class_id, nid))
+        conn.commit()
         flash('Student created', 'success')
         return redirect(url_for('admin_students'))
     return render_template('admin_student_form.html', student=None, classes=classes)
@@ -584,13 +841,21 @@ def admin_students_create():
 def admin_students_edit(student_id):
     if not admin_required():
         return redirect(url_for('index'))
-    student = Student.query.get_or_404(student_id)
-    classes = SchoolClass.query.all()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM student WHERE id = ?", (student_id,)).fetchone()
+    if not row:
+        flash('Student not found', 'danger')
+        return redirect(url_for('admin_students'))
+    student = RowObject(row)
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
     if request.method == 'POST':
-        student.name = request.form['name']
-        student.class_id = request.form.get('class_id') or None
-        student.national_id = request.form.get('national_id') or None
-        db.session.commit()
+        name = request.form['name']
+        class_id = request.form.get('class_id') or None
+        #nid = request.form.get('national_id') or None
+        phone1 = request.form.get('phone1') or None
+        conn.execute("UPDATE student SET name = ?, class_id = ?, phone1 = ? WHERE id = ?", (name, class_id, phone1, student_id))
+        conn.commit()
         flash('Student updated', 'success')
         return redirect(url_for('admin_students'))
     return render_template('admin_student_form.html', student=student, classes=classes)
@@ -601,9 +866,9 @@ def admin_students_edit(student_id):
 def admin_students_delete(student_id):
     if not admin_required():
         return redirect(url_for('index'))
-    student = Student.query.get_or_404(student_id)
-    db.session.delete(student)
-    db.session.commit()
+    conn = get_db()
+    conn.execute("DELETE FROM student WHERE id = ?", (student_id,))
+    conn.commit()
     flash('Student deleted', 'success')
     return redirect(url_for('admin_students'))
 
@@ -613,8 +878,17 @@ def admin_students_delete(student_id):
 def admin_attendance():
     if not admin_required():
         return redirect(url_for('index'))
+    conn = get_db()
     today = request.args.get('date') or date.today().isoformat()
-    records = Attendance.query.filter_by(date=today).all()
+    rows = conn.execute("""
+        SELECT a.id, a.student_id, s.name as student_name, a.date, a.period, a.status, a.class_id, c.name as class_name, a.teacher_id, u.name as teacher_name
+        FROM attendance a
+        LEFT JOIN student s ON a.student_id = s.id
+        LEFT JOIN school_class c ON a.class_id = c.id
+        LEFT JOIN user u ON a.teacher_id = u.id
+        WHERE a.date = ?
+    """, (today,)).fetchall()
+    records = [RowObject(r) for r in rows]
     return render_template('admin_attendance.html', records=records, today=today)
 
 
@@ -623,9 +897,9 @@ def admin_attendance():
 def admin_attendance_delete(att_id):
     if not admin_required():
         return redirect(url_for('index'))
-    att = Attendance.query.get_or_404(att_id)
-    db.session.delete(att)
-    db.session.commit()
+    conn = get_db()
+    conn.execute("DELETE FROM attendance WHERE id = ?", (att_id,))
+    conn.commit()
     flash('Attendance record deleted', 'success')
     return redirect(url_for('admin_attendance'))
 
@@ -642,43 +916,43 @@ def admin_import():
             flash('No file uploaded', 'warning')
             return redirect(request.url)
         df = pd.read_excel(f, sheet_name=None)
+        conn = get_db()
         # Expect sheets: students, teachers, classes, subjects
         if 'classes' in df:
             for _, row in df['classes'].iterrows():
                 name = str(row.get('name') or row.get('class') or row.get('Class') or '').strip()
                 if name:
-                    if not SchoolClass.query.filter_by(name=name).first():
-                        db.session.add(SchoolClass(name=name))
+                    exists = conn.execute("SELECT id FROM school_class WHERE name = ?", (name,)).fetchone()
+                    if not exists:
+                        conn.execute("INSERT INTO school_class (name) VALUES (?)", (name,))
         if 'students' in df:
             for _, row in df['students'].iterrows():
                 name = str(row.get('name') or row.get('Name') or '').strip()
                 class_name = str(row.get('class') or row.get('Class') or '').strip()
-                # try common national id column names
                 nid = row.get('national_id') or row.get('national id') or row.get('nid') or row.get('NationalID') or row.get('NID')
-
-                ph2 = str(row.get('phone2')).strip()               
-                ph1 = str(row.get('phone1')).strip() 
+                ph2 = str(row.get('phone2')).strip() if row.get('phone2') is not None else ''
+                ph1 = str(row.get('phone1')).strip() if row.get('phone1') is not None else ''
                 if name:
-                    klass = SchoolClass.query.filter_by(name=class_name).first() if class_name else None
-                    s = Student(name=name, class_id=klass.id if klass else None)
-                    if nid is not None:
-                        s.national_id = str(nid).strip()
-                        s.phone1 = str(ph1).strip()
-                        s.phone2 = str(ph2).strip()
-                    db.session.add(s)
+                    klass = conn.execute("SELECT id FROM school_class WHERE name = ?", (class_name,)).fetchone() if class_name else None
+                    class_id = klass['id'] if klass else None
+                    conn.execute("INSERT INTO student (name, class_id, national_id) VALUES (?,?,?)",
+                                 (name, class_id, str(nid).strip() if nid is not None else None))
         if 'teachers' in df:
             for _, row in df['teachers'].iterrows():
                 name = str(row.get('name') or row.get('Name') or '').strip()
                 if name:
-                    if not User.query.filter_by(name=name, role='teacher').first():
-                        t = User(name=name, role='teacher')
-                        db.session.add(t)
+                    exists = conn.execute("SELECT id FROM user WHERE name = ? AND role = ?", (name, 'teacher')).fetchone()
+                    if not exists:
+                        nid = row.get('national_id') or row.get('national id') or row.get('nid')
+                        conn.execute("INSERT INTO user (name, role, national_id) VALUES (?,?,?)", (name, 'teacher', str(nid).strip() if nid is not None else None))
         if 'subjects' in df:
             for _, row in df['subjects'].iterrows():
                 name = str(row.get('name') or row.get('Name') or '').strip()
-                if name and not Subject.query.filter_by(name=name).first():
-                    db.session.add(Subject(name=name))
-        db.session.commit()
+                if name:
+                    exists = conn.execute("SELECT id FROM subject WHERE name = ?", (name,)).fetchone()
+                    if not exists:
+                        conn.execute("INSERT INTO subject (name) VALUES (?)", (name,))
+        conn.commit()
         flash('Import completed', 'success')
         return redirect(url_for('admin_dashboard'))
     return render_template('import.html')
@@ -686,9 +960,31 @@ def admin_import():
 
 @app.route('/teacher/login', methods=['GET', 'POST'])
 def teacher_login():
-    teachers = User.query.filter_by(role='teacher').all()
-    classes = SchoolClass.query.all()
+    # fetch teachers/classes from sqlite so quick-login lists match imported/added rows
+    conn = get_db()
+    teachers_rows = conn.execute("SELECT * FROM user WHERE role = ? ORDER BY name", ('teacher',)).fetchall()
+    teachers = [RowObject(r) for r in teachers_rows]
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    classes = [RowObject(r) for r in classes_rows]
     if request.method == 'POST':
+        # Support email/password login for teachers
+        email = request.form.get('email')
+        password = request.form.get('password')
+        if email and password:
+            row = conn.execute("SELECT * FROM user WHERE email = ? AND role = ? LIMIT 1", (email.strip(), 'teacher')).fetchone()
+            # fallback: allow using name as identifier if email column not populated
+            if not row:
+                row = conn.execute("SELECT * FROM user WHERE name = ? AND role = ? LIMIT 1", (email.strip(), 'teacher')).fetchone()
+            if row:
+                user = SimpleUser(row)
+                if user.check_password(password):
+                    login_user(user)
+                    # show classes list after login
+                    return redirect(url_for('teacher_classes'))
+            flash('Invalid credentials', 'danger')
+            return redirect(request.url)
+
+        # existing quick-login (teacher + class selectors)
         teacher_id = request.form.get('teacher_id')
         class_id = request.form.get('class_id')
         if not teacher_id or not class_id:
@@ -700,19 +996,69 @@ def teacher_login():
     return render_template('teacher_login.html', teachers=teachers, classes=classes)
 
 
+@app.route('/teacher/classes')
+@login_required
+def teacher_classes():
+    # show list of classes assigned to current teacher
+    if current_user.role != 'teacher':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    conn = get_db()
+    tid = int(current_user.get_id())
+    # try TeacherSubject mapping first
+    rows = conn.execute("SELECT c.* FROM teacher_subject ts JOIN school_class c ON ts.class_id = c.id WHERE ts.teacher_id = ? ORDER BY c.name", (tid,)).fetchall()
+    classes = [RowObject(r) for r in rows]
+    # fallback to comma-separated `classes` field on user
+    if not classes:
+        urow = conn.execute("SELECT classes FROM user WHERE id = ?", (tid,)).fetchone()
+        if urow and urow['classes']:
+            for cid in str(urow['classes']).split(','):
+                cid = cid.strip()
+                if not cid:
+                    continue
+                crow = conn.execute("SELECT * FROM school_class WHERE id = ?", (cid,)).fetchone()
+                if crow:
+                    classes.append(RowObject(crow))
+    return render_template('teacher_classes.html', classes=classes)
+
+
+@app.route('/teacher/select_class/<int:class_id>')
+@login_required
+def teacher_select_class(class_id):
+    if current_user.role != 'teacher':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    session['teacher_id'] = int(current_user.get_id())
+    session['class_id'] = int(class_id)
+    return redirect(url_for('teacher_dashboard'))
+
+
 @app.route('/teacher/dashboard', methods=['GET', 'POST'])
 def teacher_dashboard():
     teacher_id = session.get('teacher_id')
     class_id = session.get('class_id')
     if not teacher_id or not class_id:
         return redirect(url_for('teacher_login'))
-    teacher = User.query.get(teacher_id)
-    klass = SchoolClass.query.get(class_id)
-    students = Student.query.filter_by(class_id=class_id).all()
+
+    db_conn = get_db()
+    # fetch teacher and class as RowObject wrappers (templates expect .id/.name access)
+    trow = db_conn.execute("SELECT * FROM user WHERE id = ?", (teacher_id,)).fetchone()
+    teacher = RowObject(trow) if trow else None
+    crow = db_conn.execute("SELECT * FROM school_class WHERE id = ?", (class_id,)).fetchone()
+    klass = RowObject(crow) if crow else None
+
+    # students via sqlite
+    students_rows = db_conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (class_id,)).fetchall()
+    students = [RowObject(r) for r in students_rows]
+
     today = date.today().isoformat()
-    # compute today's periods for this class and current period based on time
+    # compute today's periods for this class and current period based on time (sqlite)
     weekday = date.today().weekday()
-    periods_today = Period.query.filter(Period.day_of_week == weekday).filter(or_(Period.class_id == None, Period.class_id == class_id)).order_by(Period.period).all()
+    periods_rows = db_conn.execute(
+        "SELECT * FROM period WHERE day_of_week = ? AND (class_id IS NULL OR class_id = ?) ORDER BY period",
+        (weekday, class_id),
+    ).fetchall()
+    periods_today = [RowObject(r) for r in periods_rows]
     current_period = None
     now = datetime.now().time()
     def parse_t(tstr):
@@ -721,33 +1067,40 @@ def teacher_dashboard():
         except Exception:
             return None
     for p in periods_today:
-        st = parse_t(p.start_time) if p.start_time else None
-        en = parse_t(p.end_time) if p.end_time else None
+        st = parse_t(p.start_time) if getattr(p, 'start_time', None) else None
+        en = parse_t(p.end_time) if getattr(p, 'end_time', None) else None
         if st and en and st <= now <= en:
             current_period = p.period
             break
+
     if request.method == 'POST':
         # form contains period and statuses list
         period = int(request.form.get('period') or 1)
         for student in students:
             status = request.form.get(f'status_{student.id}', 'present')
-            att = Attendance.query.filter_by(student_id=student.id, date=today, period=period).first()
-            if att:
-                att.status = status
+            existing = db_conn.execute("SELECT id FROM attendance WHERE student_id = ? AND date = ? AND period = ?", (student.id, today, period)).fetchone()
+            if existing:
+                db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ? WHERE id = ?",
+                                (status, class_id, teacher_id, existing['id']))
             else:
-                att = Attendance(student_id=student.id, date=today, period=period, status=status, class_id=class_id, teacher_id=teacher_id)
-                db.session.add(att)
-        db.session.commit()
+                try:
+                    db_conn.execute("INSERT INTO attendance (student_id, date, period, status, class_id, teacher_id) VALUES (?,?,?,?,?,?)",
+                                    (student.id, today, period, status, class_id, teacher_id))
+                except sqlite3.IntegrityError:
+                    # fallback to update if unique constraint violated
+                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ? WHERE student_id = ? AND date = ? AND period = ?",
+                                    (status, class_id, teacher_id, student.id, today, period))
+        db_conn.commit()
         # update daily Excel file
         update_daily_excel(today)
         flash('Attendance saved', 'success')
         return redirect(url_for('teacher_dashboard'))
 
-    # build attendance map
+    # build attendance map from sqlite
     attendance = {}
-    records = Attendance.query.filter_by(date=today, class_id=class_id).all()
-    for r in records:
-        attendance.setdefault(r.period, {})[r.student_id] = r.status
+    rows = db_conn.execute("SELECT student_id, period, status FROM attendance WHERE date = ? AND class_id = ?", (today, class_id)).fetchall()
+    for r in rows:
+        attendance.setdefault(r['period'], {})[r['student_id']] = r['status']
 
     return render_template('teacher_dashboard.html', teacher=teacher, klass=klass, students=students, attendance=attendance, today=today, periods_today=periods_today, current_period=current_period)
 
@@ -780,8 +1133,10 @@ def update_daily_excel(today_str):
             i += 1
         return candidate
 
-    classes = SchoolClass.query.all()
-    for klass in classes:
+    db_conn = get_db()
+    classes_rows = db_conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    for krow in classes_rows:
+        klass = RowObject(krow)
         safe_name = get_safe_sheet_name(wb, klass.name)
         if safe_name in wb.sheetnames:
             ws = wb[safe_name]
@@ -790,20 +1145,64 @@ def update_daily_excel(today_str):
             ws.sheet_view.rightToLeft = True
         # first two rows: date+class, then headers
         ws.delete_rows(1, ws.max_row)
-        ws.append([f'Date: {today_str}  Class: {klass.name}'])
+        ws.append([f'التاريخ: {today_str}  الصف: {klass.name}'])
         # header row: names and periods placeholder
-        students = Student.query.filter_by(class_id=klass.id).all()
-        header = ['Student'] + [f'P{i+1}' for i in range(8)]
+        students_rows = db_conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (klass.id,)).fetchall()
+        header = ['الطالب'] + [f'P{i+1}' for i in range(8)]
         ws.append(header)
-        for s in students:
+        for srow in students_rows:
+            s = RowObject(srow)
             row = [s.name] + ['' for _ in range(len(header)-1)]
             # fill from db
             for i in range(1, len(header)):
-                att = Attendance.query.filter_by(student_id=s.id, date=today_str, period=i, class_id=klass.id).first()
+                att = db_conn.execute("SELECT status FROM attendance WHERE student_id = ? AND date = ? AND period = ? AND class_id = ?",
+                                      (s.id, today_str, i, klass.id)).fetchone()
                 if att:
-                    row[i] = 'A' if att.status == 'absent' else 'P'
+                    row[i] = 'A' if att['status'] == 'absent' else 'P'
             ws.append(row)
 
+        # after listing students, add a totals row per period (counts of P and A)
+        totals = ['الإجمالي']
+        for p in range(1, len(header)):
+            absent_row = db_conn.execute(
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ?",
+                (today_str, klass.id, p, 'absent'),
+            ).fetchone()
+            absent_cnt = absent_row['cnt'] if absent_row else 0
+            present_row = db_conn.execute(
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status != ?",
+                (today_str, klass.id, p, 'absent'),
+            ).fetchone()
+            present_cnt = present_row['cnt'] if present_row else 0
+            totals.append(f"P:{present_cnt} A:{absent_cnt}")
+        ws.append(totals)
+        # style the totals row (bold + light fill + center)
+        totals_row_idx = ws.max_row
+        bold_font = Font(bold=True)
+        fill = PatternFill(fill_type='solid', start_color='FFEFDB')  # light peach
+        center_align = Alignment(horizontal='center')
+        for col_idx in range(1, len(header) + 1):
+            cell = ws.cell(row=totals_row_idx, column=col_idx)
+            cell.font = bold_font
+            cell.fill = fill
+            cell.alignment = center_align
+
+        # add teacher(s) who recorded attendance for this class/date under the totals row
+        teacher_rows = db_conn.execute(
+            "SELECT DISTINCT u.name FROM attendance a JOIN user u ON a.teacher_id = u.id WHERE a.date = ? AND a.class_id = ?",
+            (today_str, klass.id),
+        ).fetchall()
+        teacher_names = ', '.join([tr['name'] for tr in teacher_rows]) if teacher_rows else ''
+        teacher_row = ['المعلم:' , teacher_names] + ['' for _ in range(len(header)-2)] if len(header) > 1 else [f'المعلم: {teacher_names}']
+        ws.append(teacher_row)
+        # style teacher row (bold + lighter fill)
+        teacher_row_idx = ws.max_row
+        teacher_fill = PatternFill(fill_type='solid', start_color='FFF7E6')  # very light
+        for col_idx in range(1, len(header) + 1):
+            cell = ws.cell(row=teacher_row_idx, column=col_idx)
+            cell.font = bold_font
+            cell.fill = teacher_fill
+            cell.alignment = center_align
     wb.save(fname)
 
 
@@ -814,12 +1213,15 @@ def staff_dashboard():
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
     today = date.today().isoformat()
-    classes = SchoolClass.query.all()
+    conn = get_db()
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
     summary = []
-    for klass in classes:
-        students = Student.query.filter_by(class_id=klass.id).all()
-        total = len(students)
-        absences = Attendance.query.filter_by(date=today, class_id=klass.id, status='absent').count()
+    for krow in classes_rows:
+        klass = RowObject(krow)
+        students_rows = conn.execute("SELECT * FROM student WHERE class_id = ?", (klass.id,)).fetchall()
+        total = len(students_rows)
+        absences_row = conn.execute("SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND status = ?", (today, klass.id, 'absent')).fetchone()
+        absences = absences_row['cnt'] if absences_row else 0
         class_cp = get_current_period_for_class(klass.id)[0]
         summary.append({'class': klass, 'total': total, 'absences': absences, 'current_period': class_cp})
     # global current period
@@ -850,16 +1252,20 @@ def admin_export_pdf():
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     styles = getSampleStyleSheet()
     elements = []
-    classes = SchoolClass.query.all()
-    for klass in classes:
+    conn = get_db()
+    classes_rows = conn.execute("SELECT * FROM school_class ORDER BY name").fetchall()
+    for krow in classes_rows:
+        klass = RowObject(krow)
         elements.append(Paragraph(f'Class: {klass.name} - Date: {today}', styles['Heading3']))
-        students = Student.query.filter_by(class_id=klass.id).all()
+        students_rows = conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (klass.id,)).fetchall()
         data = [['Student', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8']]
-        for s in students:
+        for srow in students_rows:
+            s = RowObject(srow)
             row = [s.name]
             for p in range(1,9):
-                att = Attendance.query.filter_by(student_id=s.id, date=today, period=p, class_id=klass.id).first()
-                row.append('A' if att and att.status=='absent' else 'P' if att else '')
+                att = conn.execute("SELECT status FROM attendance WHERE student_id = ? AND date = ? AND period = ? AND class_id = ?",
+                                   (s.id, today, p, klass.id)).fetchone()
+                row.append('A' if att and att['status']=='absent' else 'P' if att else '')
             data.append(row)
         t = Table(data, repeatRows=1)
         t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey)]))

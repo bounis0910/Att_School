@@ -1,8 +1,8 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h3>Teacher: {{teacher.name}} | Class: {{klass.name}} | Date: {{today}}</h3>
+<h3>المدرس: {{teacher.name}} | الصف : {{klass.name}} | التاريخ: {{today}}</h3>
 {% if current_period %}
-<div class="alert alert-info">Current period: <strong>Period {{ current_period }}</strong></div>
+<div class="alert alert-info">الحصة الحالية: <strong>الحصة {{ current_period }}</strong></div>
 {% endif %}
 <form method="post">
     <div class="mb-3">
@@ -40,8 +40,9 @@
     <table class="table table-striped">
         <thead>
             <tr>
-                <th>Student</th>
-                <th>Status</th>
+                <th>الرقم</th>
+                <th>الطالب</th>
+                <th> الحالة : حاضر/غائب </th>
             </tr>
         </thead>
         <tbody>
@@ -59,6 +60,7 @@
             {% endif %}
             {% endif %}
             <tr class="{{ row_class }}">
+                <td>{{s.national_id}}</td>
                 <td>{{s.name}}</td>
                 <td>
                     <select name="status_{{s.id}}" class="form-select" aria-label="Status for {{ s.name }}">
@@ -71,7 +73,7 @@
         </tbody>
     </table>
     {% if current_period %}
-    <button type="submit" class="btn btn-success">Save Attendance</button>
+    <button type="submit" class="btn btn-success">تسجيل الحضور</button>
     {% endif %}
 </form>
 {% endblock %}
