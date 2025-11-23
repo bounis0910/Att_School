@@ -6,13 +6,13 @@
 {% endif %}
 <form method="post">
     <div class="mb-3">
-        <label class="form-label">Period</label>
+        <label class="form-label">الحصة</label>
         {% if current_period %}
         <input type="hidden" name="period" value="{{ current_period }}">
         <select name="period_disabled" class="form-select" aria-label="Current period" disabled>
             {% if periods_today and periods_today|length > 0 %}
             {% for p in periods_today %}
-            <option value="{{ p.period }}" {% if current_period==p.period %}selected{% endif %}>Period {{ p.period }}{%
+            <option value="{{ p.period }}" {% if current_period==p.period %}selected{% endif %}>الحصة {{ p.period }}{%
                 if p.start_time and p.end_time %} ({{ p.start_time }}-{{ p.end_time }}){% endif %}</option>
             {% endfor %}
             {% else %}
@@ -20,6 +20,8 @@
             {% endif %}
         </select>
         {% else %}
+        <label class="form-label">لا توجد حصة في الوقت الحالي</label>
+        <!--
 <select name="period" class="form-select" aria-label="Select period">
             {% if periods_today and periods_today|length > 0 %}
             {% for p in periods_today %}
@@ -32,6 +34,7 @@
             {% endfor %}
             {% endif %}
         </select>
+        -->
         {% endif %}
     </div>
     <table class="table table-striped">
@@ -67,6 +70,8 @@
             {% endfor %}
         </tbody>
     </table>
+    {% if current_period %}
     <button type="submit" class="btn btn-success">Save Attendance</button>
+    {% endif %}
 </form>
 {% endblock %}
