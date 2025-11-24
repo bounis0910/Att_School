@@ -287,6 +287,7 @@ def init_db():
         status TEXT NOT NULL,
         class_id INTEGER,
         teacher_id INTEGER,
+        remark TEXT,
         UNIQUE(student_id, date, period),
         FOREIGN KEY(student_id) REFERENCES student(id),
         FOREIGN KEY(class_id) REFERENCES school_class(id),
@@ -889,6 +890,23 @@ def apply_unique_index():
         print('Failed to apply unique index:', e)
 
 
+@app.cli.command('add-remark-column')
+def add_remark_column():
+    """Add remark column to attendance table (safe for existing databases)."""
+    try:
+        conn = get_db()
+        # Check if remark column already exists
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(attendance)").fetchall()]
+        if 'remark' not in cols:
+            conn.execute("ALTER TABLE attendance ADD COLUMN remark TEXT")
+            conn.commit()
+            print('Added remark column to attendance table')
+        else:
+            print('Remark column already exists')
+    except Exception as e:
+        print('Failed to add remark column:', e)
+
+
 @app.route('/admin/students')
 @login_required
 def admin_students():
@@ -1171,10 +1189,15 @@ def teacher_dashboard():
         period = int(request.form.get('period') or 1)
         for student in students:
             status = request.form.get(f'status_{student.id}', 'present')
-            existing = db_conn.execute("SELECT id FROM attendance WHERE student_id = ? AND date = ? AND period = ?", (student.id, today, period)).fetchone()
+            existing = db_conn.execute("SELECT id, status FROM attendance WHERE student_id = ? AND date = ? AND period = ?", (student.id, today, period)).fetchone()
             if existing:
-                db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ? WHERE id = ?",
-                                (status, class_id, teacher_id, existing['id']))
+                # Clear remark if changing from absent to present
+                if existing['status'] == 'absent' and status == 'present':
+                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ?, remark = NULL WHERE id = ?",
+                                    (status, class_id, teacher_id, existing['id']))
+                else:
+                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ? WHERE id = ?",
+                                    (status, class_id, teacher_id, existing['id']))
             else:
                 try:
                     db_conn.execute("INSERT INTO attendance (student_id, date, period, status, class_id, teacher_id) VALUES (?,?,?,?,?,?)",
@@ -1259,27 +1282,46 @@ def update_daily_excel(today_str):
         for srow in students_rows:
             s = RowObject(srow)
             row = [s.name] + ['' for _ in range(len(header)-1)]
-            # fill from db
+            # fill from db with remark support
             for i in range(1, len(header)):
-                att = db_conn.execute("SELECT status FROM attendance WHERE student_id = ? AND date = ? AND period = ? AND class_id = ?",
+                att = db_conn.execute("SELECT status, remark FROM attendance WHERE student_id = ? AND date = ? AND period = ? AND class_id = ?",
                                       (s.id, today_str, i, klass.id)).fetchone()
                 if att:
-                    row[i] = 'A' if att['status'] == 'absent' else 'P'
+                    if att['status'] == 'absent':
+                        # Check if excused
+                        if att['remark'] == 'excused':
+                            row[i] = 'E'  # Excused - counted as present
+                        else:
+                            row[i] = 'A'  # Absent
+                    else:
+                        row[i] = 'P'  # Present
             ws.append(row)
 
-        # after listing students, add a totals row per period (counts of P and A)
+        # after listing students, add a totals row per period (counts of P, E, and A)
         totals = ['الإجمالي']
         for p in range(1, len(header)):
+            # Count truly absent (not excused)
             absent_row = db_conn.execute(
-                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ?",
-                (today_str, klass.id, p, 'absent'),
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ? AND (remark IS NULL OR remark != ?)",
+                (today_str, klass.id, p, 'absent', 'excused'),
             ).fetchone()
             absent_cnt = absent_row['cnt'] if absent_row else 0
+            
+            # Count excused (marked absent but with excused remark)
+            excused_row = db_conn.execute(
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ? AND remark = ?",
+                (today_str, klass.id, p, 'absent', 'excused'),
+            ).fetchone()
+            excused_cnt = excused_row['cnt'] if excused_row else 0
+            
+            # Count present (including excused)
             present_row = db_conn.execute(
-                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status != ?",
-                (today_str, klass.id, p, 'absent'),
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ?",
+                (today_str, klass.id, p, 'present'),
             ).fetchone()
             present_cnt = present_row['cnt'] if present_row else 0
+            present_cnt += excused_cnt  # Add excused to present count
+            
             totals.append(f"P:{present_cnt} A:{absent_cnt}")
         ws.append(totals)
         # style the totals row (bold + light fill + center)
@@ -1353,20 +1395,27 @@ def staff_dashboard():
             student = RowObject(srow)
             # Get today's attendance for this student across all periods
             attendance_rows = conn.execute(
-                "SELECT period, status FROM attendance WHERE student_id = ? AND date = ? AND class_id = ? ORDER BY period",
+                "SELECT period, status, remark FROM attendance WHERE student_id = ? AND date = ? AND class_id = ? ORDER BY period",
                 (student.id, today, klass.id)
             ).fetchall()
             
-            # Build period status dictionary
+            # Build period status dictionary with remarks
             period_status = {}
+            period_remarks = {}
             student_has_any_record = False
             student_is_absent_today = False
+            student_is_excused = False
             
             for att_row in attendance_rows:
                 period_status[att_row['period']] = att_row['status']
+                period_remarks[att_row['period']] = att_row['remark']
                 student_has_any_record = True
                 if att_row['status'] == 'absent':
-                    student_is_absent_today = True
+                    # Check if excused - treat as present for counting
+                    if att_row['remark'] == 'excused':
+                        student_is_excused = True
+                    else:
+                        student_is_absent_today = True
             
             # Count overall status
             if not student_has_any_record:
@@ -1377,15 +1426,44 @@ def staff_dashboard():
                 overall_status = 'absent'
             else:
                 present_count += 1
-                overall_status = 'present'
+                overall_status = 'present' if student_has_any_record else 'not_recorded'
             
             students_data.append({
                 'student': student,
                 'period_status': period_status,
+                'period_remarks': period_remarks,
                 'overall_status': overall_status
             })
         
         class_cp = get_current_period_for_class(klass.id)[0]
+        
+        # Calculate period-wise counts (present and absent for each period)
+        period_counts = {}
+        for p in range(1, 8):  # Periods 1-7
+            present_cnt = conn.execute(
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ?",
+                (today, klass.id, p, 'present')
+            ).fetchone()['cnt']
+            
+            # Count truly absent (not excused)
+            absent_cnt = conn.execute(
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ? AND (remark IS NULL OR remark != ?)",
+                (today, klass.id, p, 'absent', 'excused')
+            ).fetchone()['cnt']
+            
+            # Count excused
+            excused_cnt = conn.execute(
+                "SELECT COUNT(1) as cnt FROM attendance WHERE date = ? AND class_id = ? AND period = ? AND status = ? AND remark = ?",
+                (today, klass.id, p, 'absent', 'excused')
+            ).fetchone()['cnt']
+            
+            # Add excused to present count
+            total_present = present_cnt + excused_cnt
+            
+            period_counts[p] = {
+                'present': total_present,
+                'absent': absent_cnt
+            }
         
         summary.append({
             'class': klass,
@@ -1394,7 +1472,8 @@ def staff_dashboard():
             'absent': absent_count,
             'not_recorded': not_recorded_count,
             'current_period': class_cp,
-            'students': students_data
+            'students': students_data,
+            'period_counts': period_counts
         })
     
     # Global current period
@@ -1403,12 +1482,59 @@ def staff_dashboard():
     return render_template('staff_dashboard.html', summary=summary, today=today, current_period=current_period, has_assigned_classes=bool(assigned_class_ids))
 
 
+@app.route('/staff/update_remark', methods=['POST'])
+@login_required
+def staff_update_remark():
+    if current_user.role != 'staff':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    
+    student_id = request.form.get('student_id')
+    date = request.form.get('date')
+    period = request.form.get('period')
+    remark = request.form.get('remark')
+    
+    # Validate remark value - only 'excused' or 'still absent' allowed
+    if remark not in ['excused', 'still absent', '']:
+        flash('Invalid remark value', 'danger')
+        return redirect(url_for('staff_dashboard'))
+    
+    conn = get_db()
+    
+    # Check if attendance record exists and student is absent
+    att_record = conn.execute(
+        "SELECT id, status FROM attendance WHERE student_id = ? AND date = ? AND period = ?",
+        (student_id, date, period)
+    ).fetchone()
+    
+    if not att_record:
+        flash('Attendance record not found', 'danger')
+        return redirect(url_for('staff_dashboard'))
+    
+    if att_record['status'] != 'absent':
+        flash('Remarks can only be added for absent students', 'warning')
+        return redirect(url_for('staff_dashboard'))
+    
+    # Update remark
+    conn.execute(
+        "UPDATE attendance SET remark = ? WHERE id = ?",
+        (remark if remark else None, att_record['id'])
+    )
+    conn.commit()
+    
+    flash('Remark updated successfully', 'success')
+    # Force page reload by redirecting back
+    return redirect(url_for('staff_dashboard'))
+
+
 @app.route('/staff/export_excel')
 @login_required
 def staff_export_excel():
     if current_user.role != 'staff':
         return redirect(url_for('index'))
     today = get_current_date().isoformat()
+    # Regenerate the Excel file with latest data before sending
+    update_daily_excel(today)
     fname = os.path.join(basedir, 'exports', f'attendance-{today}.xlsx')
     if not os.path.exists(fname):
         flash('No attendance file for today', 'warning')

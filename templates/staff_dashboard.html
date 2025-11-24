@@ -65,6 +65,42 @@
       </div>
     </div>
 
+    <h6 class="mb-2">Period-wise Attendance Summary</h6>
+    <div class="table-responsive mb-3">
+      <table class="table table-sm table-bordered text-center">
+        <thead class="table-light">
+          <tr>
+            <th>Period</th>
+            <th>P1</th>
+            <th>P2</th>
+            <th>P3</th>
+            <th>P4</th>
+            <th>P5</th>
+            <th>P6</th>
+            <th>P7</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="fw-bold">Present</td>
+            {% for period in range(1, 8) %}
+            <td class="bg-success bg-opacity-10">
+              <strong class="text-success">{{s.period_counts.get(period, {}).get('present', 0)}}</strong>
+            </td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="fw-bold">Absent</td>
+            {% for period in range(1, 8) %}
+            <td class="bg-danger bg-opacity-10">
+              <strong class="text-danger">{{s.period_counts.get(period, {}).get('absent', 0)}}</strong>
+            </td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <h6 class="mb-2">Student Attendance Details</h6>
     <div class="table-responsive">
       <table class="table table-sm table-bordered table-hover">
@@ -80,6 +116,7 @@
             <th class="text-center">P6</th>
             <th class="text-center">P7</th>
             <th class="text-center">Overall</th>
+            <th class="text-center">Remark</th>
           </tr>
         </thead>
         <tbody>
@@ -96,12 +133,19 @@
             </td>
             {% for period in range(1, 8) %}
             <td
-              class="text-center {% if item.period_status.get(period) == 'present' %}table-success{% elif item.period_status.get(period) == 'absent' %}table-danger{% endif %}"
+              class="text-center {% if item.period_status.get(period) == 'present' %}table-success{% elif item.period_status.get(period) == 'absent' %}{% if item.period_remarks.get(period) == 'excused' %}table-warning{% else %}table-danger{% endif %}{% endif %}"
             >
               {% if item.period_status.get(period) == 'present' %}
               <span class="badge bg-success">P</span>
               {% elif item.period_status.get(period) == 'absent' %}
+              {% if item.period_remarks.get(period) == 'excused' %}
+              <span class="badge bg-warning text-dark">E</span>
+              {% else %}
               <span class="badge bg-danger">A</span>
+              {% endif %}
+              {% if item.period_remarks.get(period) %}
+              <br /><small class="text-muted fst-italic">{{item.period_remarks.get(period)}}</small>
+              {% endif %}
               {% else %}
               <span class="text-muted">-</span>
               {% endif %}
@@ -114,6 +158,31 @@
               <span class="badge bg-success">Present</span>
               {% else %}
               <span class="badge bg-secondary">Not Recorded</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if item.overall_status == 'absent' %}
+              <!-- Show remark form for absent students -->
+              <form method="POST" action="/staff/update_remark" class="d-inline">
+                <input type="hidden" name="student_id" value="{{item.student.id}}" />
+                <input type="hidden" name="date" value="{{today}}" />
+                <input type="hidden" name="class_id" value="{{s.class.id}}" />
+                <!-- Find first absent period that is not excused -->
+                {% set absent_period = namespace(value=0) %}
+                {% for period in range(1, 8) %}
+                  {% if item.period_status.get(period) == 'absent' and absent_period.value == 0 %}
+                    {% set absent_period.value = period %}
+                  {% endif %}
+                {% endfor %}
+                <input type="hidden" name="period" value="{{absent_period.value}}" />
+                <select name="remark" class="form-select form-select-sm" onchange="this.form.submit()">
+                  <option value="">-- Select --</option>
+                  <option value="excused" {% if item.period_remarks.get(absent_period.value) == 'excused' %}selected{% endif %}>Excused</option>
+                  <option value="still absent" {% if item.period_remarks.get(absent_period.value) == 'still absent' %}selected{% endif %}>Still Absent</option>
+                </select>
+              </form>
+              {% else %}
+              <span class="text-muted">-</span>
               {% endif %}
             </td>
           </tr>
