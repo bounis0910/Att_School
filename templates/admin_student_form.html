@@ -17,7 +17,11 @@
     </div>
     <div class="mb-3">
         <label class="form-label">National ID</label>
-        <input class="form-control" name="national_id" value="{{ student.national_id if student else '' }}">
+        <input class="form-control" disabled name="national_id" value="{{ student.national_id if student else '' }}">
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Phone 1 </label>
+        <input class="form-control" name="phone1" value="{{ student.phone1 if student else '' }}">
     </div>
     <button class="btn btn-primary">Save</button>
 </form>

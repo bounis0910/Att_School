@@ -7,17 +7,34 @@
 <div class="mb-3">
     <a class="btn btn-secondary" href="/admin/import">Import Excel</a>
     <a class="btn btn-primary" href="/admin/export_pdf">Export PDF (today)</a>
+    <a class="btn btn-warning" href="{{ url_for('change_password') }}">
+        <i class="bi bi-key"></i> Change My Password
+    </a>
+    <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">
+        <i class="bi bi-box-arrow-right"></i> Logout
+    </a>
 </div>
 
 <h5>Administration</h5>
 <div class="list-group mb-3">
-    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_users') }}">Manage Users</a>
-    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_classes') }}">Manage Classes</a>
-    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_subjects') }}">Manage Subjects</a>
-    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_students') }}">Manage Students</a>
-    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_attendance') }}">Attendance Records</a>
-    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_periods') }}">Manage Periods /
-        Schedule</a>
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_users') }}">
+        <i class="bi bi-people"></i> Manage Users
+    </a>
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_classes') }}">
+        <i class="bi bi-collection"></i> Manage Classes
+    </a>
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_subjects') }}">
+        <i class="bi bi-book"></i> Manage Subjects
+    </a>
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_students') }}">
+        <i class="bi bi-person-badge"></i> Manage Students
+    </a>
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_attendance') }}">
+        <i class="bi bi-clipboard-check"></i> Attendance Records
+    </a>
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_periods') }}">
+        <i class="bi bi-clock-history"></i> Manage Periods / Schedule
+    </a>
 </div>
 
 <h5>Classes</h5>
