@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime
+import pytz
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
 
@@ -22,6 +23,17 @@ import re
 from openpyxl.styles import Font, PatternFill, Alignment
 
 basedir = os.path.abspath(os.path.dirname(__file__))
+
+# Timezone configuration
+TIMEZONE = pytz.timezone('Asia/Qatar')  # Change this to your timezone
+
+def get_current_datetime():
+    """Get current datetime with timezone."""
+    return datetime.now(TIMEZONE)
+
+def get_current_date():
+    """Get current date with timezone."""
+    return get_current_datetime().date()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -165,7 +177,7 @@ def get_current_period_for_class(class_id=None):
     """Return current period number for today for given class_id or global (None).
     Uses sqlite `period` table. Returns (period_number, row) or (None, None).
     """
-    weekday = date.today().weekday()
+    weekday = get_current_date().weekday()
     conn = get_db()
     if class_id is None:
         rows = conn.execute(
@@ -178,7 +190,7 @@ def get_current_period_for_class(class_id=None):
             (weekday, class_id),
         ).fetchall()
 
-    now = datetime.now().time()
+    now = get_current_datetime().time()
 
     def parse_t(tstr):
         try:
@@ -960,7 +972,7 @@ def admin_attendance():
     if not admin_required():
         return redirect(url_for('index'))
     conn = get_db()
-    today = request.args.get('date') or date.today().isoformat()
+    today = request.args.get('date') or get_current_date().isoformat()
     rows = conn.execute("""
         SELECT a.id, a.student_id, s.name as student_name, a.date, a.period, a.status, a.class_id, c.name as class_name, a.teacher_id, u.name as teacher_name
         FROM attendance a
@@ -1132,16 +1144,16 @@ def teacher_dashboard():
     students_rows = db_conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (class_id,)).fetchall()
     students = [RowObject(r) for r in students_rows]
 
-    today = date.today().isoformat()
+    today = get_current_date().isoformat()
     # compute today's periods for this class and current period based on time (sqlite)
-    weekday = date.today().weekday()
+    weekday = get_current_date().weekday()
     periods_rows = db_conn.execute(
         "SELECT * FROM period WHERE day_of_week = ? AND (class_id IS NULL OR class_id = ?) ORDER BY period",
         (weekday, class_id),
     ).fetchall()
     periods_today = [RowObject(r) for r in periods_rows]
     current_period = None
-    now = datetime.now().time()
+    now = get_current_datetime().time()
     def parse_t(tstr):
         try:
             return datetime.strptime(tstr, '%H:%M').time()
@@ -1307,7 +1319,7 @@ def staff_dashboard():
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
     
-    today = date.today().isoformat()
+    today = get_current_date().isoformat()
     conn = get_db()
     user_id = int(current_user.get_id())
     
@@ -1396,7 +1408,7 @@ def staff_dashboard():
 def staff_export_excel():
     if current_user.role != 'staff':
         return redirect(url_for('index'))
-    today = date.today().isoformat()
+    today = get_current_date().isoformat()
     fname = os.path.join(basedir, 'exports', f'attendance-{today}.xlsx')
     if not os.path.exists(fname):
         flash('No attendance file for today', 'warning')
@@ -1409,7 +1421,7 @@ def staff_export_excel():
 def admin_export_pdf():
     if current_user.role != 'admin':
         return redirect(url_for('index'))
-    today = date.today().isoformat()
+    today = get_current_date().isoformat()
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -1438,5 +1450,5 @@ def admin_export_pdf():
 
 
 if __name__ == '__main__':
-    #app.run(debug=True)
-    app.run(host='10.98.188.187', port=5000)
+    app.run(debug=True)
+    #app.run(host='10.108.97.179', port=5000)
