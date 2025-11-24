@@ -1,126 +1,130 @@
-{% extends 'layout.html' %}
-{% block content %}
+{% extends 'layout.html' %} {% block content %}
 <h3>Staff Dashboard | Date: {{today}}</h3>
 {% if current_period %}
-<div class="alert alert-info">Current period: <strong>Period {{ current_period }}</strong></div>
-{% endif %}
-
-{% if has_assigned_classes %}
+<div class="alert alert-info">
+  Current period: <strong>Period {{ current_period }}</strong>
+</div>
+{% endif %} {% if has_assigned_classes %}
 <div class="alert alert-success">
-    <i class="bi bi-info-circle"></i> Showing attendance for your assigned classes only
+  <i class="bi bi-info-circle"></i> Showing attendance for your assigned classes
+  only
 </div>
 {% endif %}
 
 <div class="mb-3">
-    <a class="btn btn-outline-primary" href="/staff/export_excel">Download Excel (today)</a>
-    <a class="btn btn-warning" href="{{ url_for('change_password') }}">
-        <i class="bi bi-key"></i> Change My Password
-    </a>
-    <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">
-        <i class="bi bi-box-arrow-right"></i> Logout
-    </a>
+  <a class="btn btn-outline-primary" href="/staff/export_excel"
+    >Download Excel (today)</a
+  >
+  <a class="btn btn-warning" href="{{ url_for('change_password') }}">
+    <i class="bi bi-key"></i> Change My Password
+  </a>
+  <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">
+    <i class="bi bi-box-arrow-right"></i> Logout
+  </a>
 </div>
 
 {% for s in summary %}
 <div class="card mb-4">
-    <div class="card-header {% if s.current_period %}bg-info text-white{% else %}bg-light{% endif %}">
-        <h5 class="mb-0">
-            <i class="bi bi-collection"></i> {{s.class.name}}
-            {% if s.current_period %}
-            <span class="badge bg-warning text-dark ms-2">Current: Period {{ s.current_period }}</span>
-            {% endif %}
-        </h5>
-    </div>
-    <div class="card-body">
-        <div class="row mb-3">
-            <div class="col-md-3">
-                <div class="text-center p-3 bg-light rounded">
-                    <h6 class="text-muted mb-1">Total Students</h6>
-                    <h3 class="mb-0">{{s.total}}</h3>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-center p-3 bg-success text-white rounded">
-                    <h6 class="mb-1">Present</h6>
-                    <h3 class="mb-0">{{s.present}}</h3>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-center p-3 bg-danger text-white rounded">
-                    <h6 class="mb-1">Absent</h6>
-                    <h3 class="mb-0">{{s.absent}}</h3>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-center p-3 bg-secondary text-white rounded">
-                    <h6 class="mb-1">Not Recorded</h6>
-                    <h3 class="mb-0">{{s.not_recorded}}</h3>
-                </div>
-            </div>
+  <div
+    class="card-header {% if s.current_period %}bg-info text-white{% else %}bg-light{% endif %}"
+  >
+    <h5 class="mb-0">
+      <i class="bi bi-collection"></i> {{s.class.name}} {% if s.current_period
+      %}
+      <span class="badge bg-warning text-dark ms-2"
+        >Current: Period {{ s.current_period }}</span
+      >
+      {% endif %}
+    </h5>
+  </div>
+  <div class="card-body">
+    <div class="row mb-3">
+      <div class="col-md-3">
+        <div class="text-center p-3 bg-light rounded">
+          <h6 class="text-muted mb-1">Total Students</h6>
+          <h3 class="mb-0">{{s.total}}</h3>
         </div>
+      </div>
+      <div class="col-md-3">
+        <div class="text-center p-3 bg-success text-white rounded">
+          <h6 class="mb-1">Present</h6>
+          <h3 class="mb-0">{{s.present}}</h3>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="text-center p-3 bg-danger text-white rounded">
+          <h6 class="mb-1">Absent</h6>
+          <h3 class="mb-0">{{s.absent}}</h3>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="text-center p-3 bg-secondary text-white rounded">
+          <h6 class="mb-1">Not Recorded</h6>
+          <h3 class="mb-0">{{s.not_recorded}}</h3>
+        </div>
+      </div>
+    </div>
 
-        <h6 class="mb-2">Student Attendance Details</h6>
-        <div class="table-responsive">
-            <table class="table table-sm table-bordered table-hover">
-                <thead class="table-light">
-                    <tr>
-                        <th>#</th>
-                        <th>Student Name</th>
-                        <th class="text-center">P1</th>
-                        <th class="text-center">P2</th>
-                        <th class="text-center">P3</th>
-                        <th class="text-center">P4</th>
-                        <th class="text-center">P5</th>
-                        <th class="text-center">P6</th>
-                        <th class="text-center">P7</th>
-                        <th class="text-center">P8</th>
-                        <th class="text-center">Overall</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in s.students %}
-                    <tr>
-                        <td>{{ loop.index }}</td>
-                        <td>
-                            <strong>{{item.student.name}}</strong>
-                            {% if item.student.national_id %}
-                            <br><small class="text-muted">ID: {{item.student.national_id}}</small>
-                            {% endif %}
-                        </td>
-                        {% for period in range(1, 9) %}
-                        <td
-                            class="text-center {% if item.period_status.get(period) == 'present' %}table-success{% elif item.period_status.get(period) == 'absent' %}table-danger{% endif %}">
-                            {% if item.period_status.get(period) == 'present' %}
-                            <span class="badge bg-success">P</span>
-                            {% elif item.period_status.get(period) == 'absent' %}
-                            <span class="badge bg-danger">A</span>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        {% endfor %}
-                        <td class="text-center">
-                            {% if item.overall_status == 'absent' %}
-                            <span class="badge bg-danger">Absent</span>
-                            {% elif item.overall_status == 'present' %}
-                            <span class="badge bg-success">Present</span>
-                            {% else %}
-                            <span class="badge bg-secondary">Not Recorded</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <h6 class="mb-2">Student Attendance Details</h6>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>#</th>
+            <th>Student Name</th>
+            <th class="text-center">P1</th>
+            <th class="text-center">P2</th>
+            <th class="text-center">P3</th>
+            <th class="text-center">P4</th>
+            <th class="text-center">P5</th>
+            <th class="text-center">P6</th>
+            <th class="text-center">P7</th>
+            <th class="text-center">Overall</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in s.students %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+              <strong>{{item.student.name}}</strong>
+              {% if item.student.national_id %}
+              <br /><small class="text-muted"
+                >ID: {{item.student.national_id}}</small
+              >
+              {% endif %}
+            </td>
+            {% for period in range(1, 8) %}
+            <td
+              class="text-center {% if item.period_status.get(period) == 'present' %}table-success{% elif item.period_status.get(period) == 'absent' %}table-danger{% endif %}"
+            >
+              {% if item.period_status.get(period) == 'present' %}
+              <span class="badge bg-success">P</span>
+              {% elif item.period_status.get(period) == 'absent' %}
+              <span class="badge bg-danger">A</span>
+              {% else %}
+              <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-center">
+              {% if item.overall_status == 'absent' %}
+              <span class="badge bg-danger">Absent</span>
+              {% elif item.overall_status == 'present' %}
+              <span class="badge bg-success">Present</span>
+              {% else %}
+              <span class="badge bg-secondary">Not Recorded</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </div>
 </div>
-{% endfor %}
-
-{% if not summary %}
+{% endfor %} {% if not summary %}
 <div class="alert alert-warning">
-    <i class="bi bi-exclamation-triangle"></i> No classes assigned or available.
+  <i class="bi bi-exclamation-triangle"></i> No classes assigned or available.
 </div>
-{% endif %}
-
-{% endblock %}
+{% endif %} {% endblock %}

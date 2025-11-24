@@ -5,3 +5,10 @@ pip install flask_sqlalchemy
 pip install flask-login
 pip install flask-migrate
 pip install reportlab
+
+
+sudo apt update
+sudo apt install python-is-python3
+sudo apt install python3-pip
+
+dconf reset -f /org/gnome/

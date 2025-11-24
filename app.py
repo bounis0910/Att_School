@@ -434,10 +434,10 @@ def admin_login():
 @app.route('/staff/login', methods=['GET', 'POST'])
 def staff_login():
     if request.method == 'POST':
-        name = request.form['name']
+        email = request.form['email']
         pw = request.form['password']
         conn = get_db()
-        row = conn.execute("SELECT * FROM user WHERE name = ? AND role = ? LIMIT 1", (name, 'staff')).fetchone()
+        row = conn.execute("SELECT * FROM user WHERE email = ? AND role = ? LIMIT 1", (email, 'staff')).fetchone()
         if row:
             user = SimpleUser(row)
             if user.check_password(pw):
@@ -1254,7 +1254,7 @@ def update_daily_excel(today_str):
         ws.append([f'التاريخ: {today_str}  الصف: {klass.name}'])
         # header row: names and periods placeholder
         students_rows = db_conn.execute("SELECT * FROM student WHERE class_id = ? ORDER BY name", (klass.id,)).fetchall()
-        header = ['الطالب'] + [f'P{i+1}' for i in range(9)]
+        header = ['الطالب'] + [f'P{i+1}' for i in range(8)]
         ws.append(header)
         for srow in students_rows:
             s = RowObject(srow)
@@ -1436,7 +1436,7 @@ def admin_export_pdf():
         for srow in students_rows:
             s = RowObject(srow)
             row = [s.name]
-            for p in range(1,9):
+            for p in range(1,7):
                 att = conn.execute("SELECT status FROM attendance WHERE student_id = ? AND date = ? AND period = ? AND class_id = ?",
                                    (s.id, today, p, klass.id)).fetchone()
                 row.append('A' if att and att['status']=='absent' else 'P' if att else '')
