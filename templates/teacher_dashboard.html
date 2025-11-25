@@ -17,7 +17,8 @@
     <div class="mb-3">
 
         {% if current_period %}
-        <label class="form-label">الحصة</label>
+        <button type="submit" class="btn btn-success d-block mx-auto">حفظ</button>
+    <!--<label class="form-label">الحصة</label>-->
         <input type="hidden" name="period" value="{{ current_period }}">
         <select name="period_disabled" class="form-select" aria-label="Current period" disabled>
             {% if periods_today and periods_today|length > 0 %}
@@ -84,7 +85,7 @@
         </tbody>
     </table>
 
-    <button type="submit" class="btn btn-success">تسجيل الحضور</button>
+    <button type="submit" class="btn btn-success d-block mx-auto">حفظ</button>
     {% endif %}
 </form>
 {% endblock %}
