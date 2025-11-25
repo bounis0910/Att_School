@@ -288,6 +288,9 @@ def init_db():
         class_id INTEGER,
         teacher_id INTEGER,
         remark TEXT,
+        notes TEXT,
+        created_at TEXT,
+        updated_at TEXT,
         UNIQUE(student_id, date, period),
         FOREIGN KEY(student_id) REFERENCES student(id),
         FOREIGN KEY(class_id) REFERENCES school_class(id),
@@ -907,6 +910,37 @@ def add_remark_column():
         print('Failed to add remark column:', e)
 
 
+@app.cli.command('add-attendance-columns')
+def add_attendance_columns():
+    """Add notes, created_at, and updated_at columns to attendance table (safe for existing databases)."""
+    try:
+        conn = get_db()
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(attendance)").fetchall()]
+        
+        if 'notes' not in cols:
+            conn.execute("ALTER TABLE attendance ADD COLUMN notes TEXT")
+            print('Added notes column to attendance table')
+        else:
+            print('Notes column already exists')
+        
+        if 'created_at' not in cols:
+            conn.execute("ALTER TABLE attendance ADD COLUMN created_at TEXT")
+            print('Added created_at column to attendance table')
+        else:
+            print('Created_at column already exists')
+        
+        if 'updated_at' not in cols:
+            conn.execute("ALTER TABLE attendance ADD COLUMN updated_at TEXT")
+            print('Added updated_at column to attendance table')
+        else:
+            print('Updated_at column already exists')
+        
+        conn.commit()
+        print('Attendance columns update completed')
+    except Exception as e:
+        print('Failed to add attendance columns:', e)
+
+
 @app.route('/admin/students')
 @login_required
 def admin_students():
@@ -1187,25 +1221,27 @@ def teacher_dashboard():
     if request.method == 'POST':
         # form contains period and statuses list
         period = int(request.form.get('period') or 1)
+        current_time = get_current_datetime().isoformat()
+        
         for student in students:
             status = request.form.get(f'status_{student.id}', 'present')
             existing = db_conn.execute("SELECT id, status FROM attendance WHERE student_id = ? AND date = ? AND period = ?", (student.id, today, period)).fetchone()
             if existing:
                 # Clear remark if changing from absent to present
                 if existing['status'] == 'absent' and status == 'present':
-                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ?, remark = NULL WHERE id = ?",
-                                    (status, class_id, teacher_id, existing['id']))
+                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ?, remark = NULL, updated_at = ? WHERE id = ?",
+                                    (status, class_id, teacher_id, current_time, existing['id']))
                 else:
-                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ? WHERE id = ?",
-                                    (status, class_id, teacher_id, existing['id']))
+                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ?, updated_at = ? WHERE id = ?",
+                                    (status, class_id, teacher_id, current_time, existing['id']))
             else:
                 try:
-                    db_conn.execute("INSERT INTO attendance (student_id, date, period, status, class_id, teacher_id) VALUES (?,?,?,?,?,?)",
-                                    (student.id, today, period, status, class_id, teacher_id))
+                    db_conn.execute("INSERT INTO attendance (student_id, date, period, status, class_id, teacher_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                                    (student.id, today, period, status, class_id, teacher_id, current_time, current_time))
                 except sqlite3.IntegrityError:
                     # fallback to update if unique constraint violated
-                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ? WHERE student_id = ? AND date = ? AND period = ?",
-                                    (status, class_id, teacher_id, student.id, today, period))
+                    db_conn.execute("UPDATE attendance SET status = ?, class_id = ?, teacher_id = ?, updated_at = ? WHERE student_id = ? AND date = ? AND period = ?",
+                                    (status, class_id, teacher_id, current_time, student.id, today, period))
         db_conn.commit()
         # update daily Excel file
         update_daily_excel(today)
@@ -1407,13 +1443,14 @@ def staff_dashboard():
             student = RowObject(srow)
             # Get today's attendance for this student across all periods
             attendance_rows = conn.execute(
-                "SELECT period, status, remark FROM attendance WHERE student_id = ? AND date = ? AND class_id = ? ORDER BY period",
+                "SELECT period, status, remark, notes FROM attendance WHERE student_id = ? AND date = ? AND class_id = ? ORDER BY period",
                 (student.id, today, klass.id)
             ).fetchall()
             
-            # Build period status dictionary with remarks
+            # Build period status dictionary with remarks and notes
             period_status = {}
             period_remarks = {}
+            period_notes = {}
             student_has_any_record = False
             student_is_absent_today = False
             student_is_excused = False
@@ -1421,6 +1458,7 @@ def staff_dashboard():
             for att_row in attendance_rows:
                 period_status[att_row['period']] = att_row['status']
                 period_remarks[att_row['period']] = att_row['remark']
+                period_notes[att_row['period']] = att_row['notes']
                 student_has_any_record = True
                 if att_row['status'] == 'absent':
                     # Check if excused - treat as present for counting
@@ -1444,6 +1482,7 @@ def staff_dashboard():
                 'student': student,
                 'period_status': period_status,
                 'period_remarks': period_remarks,
+                'period_notes': period_notes,
                 'overall_status': overall_status
             })
         
@@ -1532,6 +1571,7 @@ def staff_update_remark():
         return redirect(url_for('staff_dashboard'))
     
     conn = get_db()
+    current_time = get_current_datetime().isoformat()
     
     # Check if attendance record exists and student is absent
     att_record = conn.execute(
@@ -1547,10 +1587,10 @@ def staff_update_remark():
         flash('Remarks can only be added for absent students', 'warning')
         return redirect(url_for('staff_dashboard'))
     
-    # Update remark
+    # Update remark and updated_at timestamp
     conn.execute(
-        "UPDATE attendance SET remark = ? WHERE id = ?",
-        (remark if remark else None, att_record['id'])
+        "UPDATE attendance SET remark = ?, updated_at = ? WHERE id = ?",
+        (remark if remark else None, current_time, att_record['id'])
     )
     conn.commit()
     
@@ -1566,6 +1606,54 @@ def staff_update_remark():
         flash('Remark cleared', 'success')
     
     # Force page reload by redirecting back
+    return redirect(url_for('staff_dashboard'))
+
+
+@app.route('/staff/update_notes', methods=['POST'])
+@login_required
+def staff_update_notes():
+    if current_user.role != 'staff':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    
+    student_id = request.form.get('student_id')
+    date = request.form.get('date')
+    period = request.form.get('period')
+    notes = request.form.get('notes', '').strip()
+    
+    # Validate inputs
+    if not student_id or not date or not period:
+        flash('Missing required parameters', 'danger')
+        return redirect(url_for('staff_dashboard'))
+    
+    # Convert period to integer
+    try:
+        period = int(period)
+    except (ValueError, TypeError):
+        flash('Invalid period value', 'danger')
+        return redirect(url_for('staff_dashboard'))
+    
+    conn = get_db()
+    current_time = get_current_datetime().isoformat()
+    
+    # Check if attendance record exists
+    att_record = conn.execute(
+        "SELECT id FROM attendance WHERE student_id = ? AND date = ? AND period = ?",
+        (int(student_id), date, period)
+    ).fetchone()
+    
+    if not att_record:
+        flash(f'Attendance record not found for period {period}', 'danger')
+        return redirect(url_for('staff_dashboard'))
+    
+    # Update notes and updated_at timestamp
+    conn.execute(
+        "UPDATE attendance SET notes = ?, updated_at = ? WHERE id = ?",
+        (notes if notes else None, current_time, att_record['id'])
+    )
+    conn.commit()
+    
+    flash('Notes updated successfully', 'success')
     return redirect(url_for('staff_dashboard'))
 
 

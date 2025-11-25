@@ -116,6 +116,7 @@
             {% endfor %}
             <th class="text-center">Overall</th>
             <th class="text-center">Remark</th>
+            <th class="text-center">Notes</th>
           </tr>
         </thead>
         <tbody>
@@ -180,6 +181,61 @@
                   <option value="still absent" {% if item.period_remarks.get(absent_period.value) == 'still absent' %}selected{% endif %}>Still Absent</option>
                 </select>
               </form>
+              {% else %}
+              <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if item.overall_status != 'not_recorded' %}
+              <!-- Show notes button and modal for all recorded students -->
+              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#notesModal-{{s.class.id}}-{{item.student.id}}">
+                <i class="bi bi-pencil-square"></i>
+                {% set has_notes = namespace(value=false) %}
+                {% for period in s.period_counts.keys()|sort %}
+                  {% if item.period_notes.get(period) %}
+                    {% set has_notes.value = true %}
+                  {% endif %}
+                {% endfor %}
+                {% if has_notes.value %}
+                <i class="bi bi-check-circle-fill text-success"></i>
+                {% endif %}
+              </button>
+              
+              <!-- Notes Modal -->
+              <div class="modal fade" id="notesModal-{{s.class.id}}-{{item.student.id}}" tabindex="-1" aria-labelledby="notesModalLabel-{{s.class.id}}-{{item.student.id}}" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title" id="notesModalLabel-{{s.class.id}}-{{item.student.id}}">Notes for {{item.student.name}}</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                      {% for period in s.period_counts.keys()|sort %}
+                      {% if item.period_status.get(period) %}
+                      <form method="POST" action="/staff/update_notes" class="mb-3">
+                        <input type="hidden" name="student_id" value="{{item.student.id}}" />
+                        <input type="hidden" name="date" value="{{today}}" />
+                        <input type="hidden" name="period" value="{{period}}" />
+                        <div class="mb-2">
+                          <label class="form-label fw-bold">Period {{period}}
+                            <span class="badge {% if item.period_status.get(period) == 'present' %}bg-success{% elif item.period_remarks.get(period) == 'excused' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                              {% if item.period_status.get(period) == 'present' %}P{% elif item.period_remarks.get(period) == 'excused' %}E{% else %}A{% endif %}
+                            </span>
+                          </label>
+                          <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Add notes for this period...">{{item.period_notes.get(period) or ''}}</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-primary">Save Period {{period}} Notes</button>
+                      </form>
+                      <hr />
+                      {% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               {% else %}
               <span class="text-muted">-</span>
               {% endif %}
