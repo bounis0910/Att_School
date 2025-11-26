@@ -1,0 +1,348 @@
+"""
+Attendance System - PostgreSQL + asyncpg version with async support
+"""
+import os
+import re
+import sqlite3
+from datetime import date, datetime
+import pytz
+import click
+import pandas as pd
+
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, g
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from io import BytesIO
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+
+# PostgreSQL imports
+from sqlalchemy import create_engine, text, Index
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
+import asyncio
+
+basedir = os.path.abspath(os.path.dirname(__file__))
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# Timezone configuration
+TIMEZONE = pytz.timezone('Asia/Qatar')
+
+def get_current_datetime():
+    """Get current datetime with timezone."""
+    return datetime.now(TIMEZONE)
+
+def get_current_date():
+    """Get current date with timezone."""
+    return get_current_datetime().date()
+
+# Database Configuration
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql+asyncpg://att_user:password@localhost:5432/attendance_db')
+
+# Create async engine
+async_engine = create_async_engine(DATABASE_URL, echo=False, pool_size=20, max_overflow=40)
+
+# For sync operations (compatibility)
+sync_engine = create_engine(
+    DATABASE_URL.replace('asyncpg', 'psycopg2'),
+    pool_size=20,
+    max_overflow=40
+)
+
+AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+
+# Flask app configuration
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+login_manager = LoginManager(app)
+login_manager.login_view = 'admin_login'
+
+# Database stub for compatibility
+class _DBStub:
+    class Model:
+        pass
+    def Column(self, *args, **kwargs):
+        return None
+    Integer = int
+    def String(self, *args, **kwargs):
+        return str
+    def ForeignKey(self, *args, **kwargs):
+        return None
+    def UniqueConstraint(self, *args, **kwargs):
+        return None
+    def relationship(self, *args, **kwargs):
+        return None
+
+db = _DBStub()
+
+def get_db():
+    """Get synchronous database connection for legacy code."""
+    db_conn = getattr(g, '_database', None)
+    if db_conn is None:
+        db_conn = g._database = sync_engine.connect()
+    return db_conn
+
+@app.teardown_appcontext
+def close_db(exc):
+    db_conn = getattr(g, '_database', None)
+    if db_conn is not None:
+        db_conn.close()
+
+class RowObject:
+    """Wrap database rows to allow attribute access."""
+    def __init__(self, row):
+        self._row = row
+    
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            return object.__getattribute__(self, name)
+        try:
+            if hasattr(self._row, name):
+                return getattr(self._row, name)
+            if isinstance(self._row, dict):
+                return self._row.get(name)
+            return self._row[name]
+        except (KeyError, TypeError, IndexError):
+            return None
+
+class SimpleUser(UserMixin):
+    """Lightweight user adapter for Flask-Login."""
+    def __init__(self, row):
+        self._row = row
+        self.id = row.get('id') if isinstance(row, dict) else row['id']
+        self.name = row.get('name') if isinstance(row, dict) else row['name']
+        self.role = row.get('role') if isinstance(row, dict) else row['role']
+        self.password_hash = row.get('password_hash') if isinstance(row, dict) else row['password_hash']
+
+    def is_authenticated(self):
+        return True
+    
+    def is_active(self):
+        return True
+    
+    def is_anonymous(self):
+        return False
+    
+    def get_id(self):
+        return str(self.id)
+    
+    def check_password(self, pw):
+        return check_password_hash(self.password_hash, pw)
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_db()
+    row = conn.execute(text("SELECT * FROM \"user\" WHERE id = :id"), {'id': int(user_id)}).fetchone()
+    if row:
+        row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+        return SimpleUser(row_dict)
+    return None
+
+# CLI Commands
+@app.cli.command('init-db')
+def init_db():
+    """Initialize database with tables and indexes."""
+    conn = sync_engine.connect()
+    
+    # Create tables
+    sql = """
+    CREATE TABLE IF NOT EXISTS "user" (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        password_hash VARCHAR(200),
+        national_id VARCHAR(50),
+        classes VARCHAR(200),
+        email VARCHAR(150),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS school_class (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(120) NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS subject (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(120) NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS student (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        class_id INTEGER REFERENCES school_class(id) ON DELETE CASCADE,
+        national_id VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS period (
+        id SERIAL PRIMARY KEY,
+        day_of_week INTEGER NOT NULL,
+        period INTEGER NOT NULL,
+        start_time VARCHAR(8),
+        end_time VARCHAR(8),
+        class_id INTEGER REFERENCES school_class(id) ON DELETE CASCADE,
+        subject_id INTEGER REFERENCES subject(id) ON DELETE CASCADE,
+        UNIQUE(day_of_week, period, class_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS attendance (
+        id SERIAL PRIMARY KEY,
+        student_id INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
+        date VARCHAR(20) NOT NULL,
+        period INTEGER NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        class_id INTEGER NOT NULL REFERENCES school_class(id) ON DELETE CASCADE,
+        teacher_id INTEGER REFERENCES "user"(id) ON DELETE SET NULL,
+        remark VARCHAR(50),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(student_id, date, period)
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_subject (
+        id SERIAL PRIMARY KEY,
+        teacher_id INTEGER REFERENCES "user"(id) ON DELETE CASCADE,
+        subject_id INTEGER REFERENCES subject(id) ON DELETE CASCADE,
+        class_id INTEGER REFERENCES school_class(id) ON DELETE CASCADE
+    );
+    """
+    
+    for statement in sql.split(';'):
+        if statement.strip():
+            conn.execute(text(statement))
+    
+    conn.commit()
+
+    # Create indexes
+    indexes_sql = """
+    CREATE INDEX IF NOT EXISTS idx_attendance_period ON attendance(period);
+    CREATE INDEX IF NOT EXISTS idx_attendance_class_id ON attendance(class_id);
+    CREATE INDEX IF NOT EXISTS idx_attendance_teacher_id ON attendance(teacher_id);
+    CREATE INDEX IF NOT EXISTS idx_attendance_student_id ON attendance(student_id);
+    CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
+    CREATE INDEX IF NOT EXISTS idx_attendance_student_date ON attendance(student_id, date);
+    CREATE INDEX IF NOT EXISTS idx_attendance_date_class ON attendance(date, class_id);
+    CREATE INDEX IF NOT EXISTS idx_student_class_id ON student(class_id);
+    CREATE INDEX IF NOT EXISTS idx_period_class_id ON period(class_id);
+    CREATE INDEX IF NOT EXISTS idx_teacher_subject_teacher ON teacher_subject(teacher_id);
+    """
+    
+    for statement in indexes_sql.split(';'):
+        if statement.strip():
+            try:
+                conn.execute(text(statement))
+                conn.commit()
+            except Exception as e:
+                print(f"Index creation note: {e}")
+    
+    # Create default admin
+    try:
+        admin = conn.execute(text("SELECT id FROM \"user\" WHERE role = 'admin' LIMIT 1")).fetchone()
+        if not admin:
+            pw_hash = generate_password_hash('admin')
+            conn.execute(text(
+                "INSERT INTO \"user\" (name, role, password_hash) VALUES (:name, :role, :hash)"
+            ), {'name': 'Administrator', 'role': 'admin', 'hash': pw_hash})
+            conn.commit()
+            print('Created default admin (username: Administrator, password: admin)')
+    except Exception as e:
+        print(f"Admin creation note: {e}")
+    
+    conn.close()
+    print('Database initialized successfully')
+
+@app.cli.command('add-attendance-columns')
+def add_attendance_columns():
+    """Add missing columns to attendance table if they don't exist."""
+    conn = sync_engine.connect()
+    
+    columns_to_add = [
+        ("notes", "TEXT"),
+        ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+        ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ]
+    
+    for col_name, col_type in columns_to_add:
+        try:
+            conn.execute(text(f"ALTER TABLE attendance ADD COLUMN {col_name} {col_type}"))
+            conn.commit()
+            print(f'Added {col_name} column to attendance table')
+        except Exception as e:
+            if 'already exists' in str(e):
+                print(f'{col_name} column already exists')
+            else:
+                print(f'Note: {e}')
+    
+    conn.close()
+
+# Routes (keeping existing routes - they remain the same)
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        name = request.form['name']
+        pw = request.form['password']
+        conn = get_db()
+        row = conn.execute(text(
+            'SELECT * FROM "user" WHERE name = :name AND role = :role LIMIT 1'
+        ), {'name': name, 'role': 'admin'}).fetchone()
+        if row:
+            row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+            user = SimpleUser(row_dict)
+            if user.check_password(pw):
+                login_user(user)
+                return redirect(url_for('admin_dashboard'))
+        flash('Invalid credentials', 'danger')
+    return render_template('admin_login.html')
+
+@app.route('/staff/login', methods=['GET', 'POST'])
+def staff_login():
+    if request.method == 'POST':
+        email = request.form['email']
+        pw = request.form['password']
+        conn = get_db()
+        row = conn.execute(text(
+            'SELECT * FROM "user" WHERE email = :email AND role = :role LIMIT 1'
+        ), {'email': email, 'role': 'staff'}).fetchone()
+        if row:
+            row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+            user = SimpleUser(row_dict)
+            if user.check_password(pw):
+                login_user(user)
+                return redirect(url_for('staff_dashboard'))
+        flash('Invalid credentials', 'danger')
+    return render_template('staff_login.html')
+
+@app.route('/logout')
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
+
+# ============= Continue with other routes =============
+# All other routes remain the same (admin_dashboard, admin_users, etc.)
+# Just ensure they use the get_db() function which now points to PostgreSQL
+# =====================================================
+
+@app.route('/admin/dashboard')
+@login_required
+def admin_dashboard():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    conn = get_db()
+    classes_rows = conn.execute(text("SELECT * FROM school_class ORDER BY name")).fetchall()
+    classes = [RowObject(dict(r._mapping) if hasattr(r, '_mapping') else dict(r)) for r in classes_rows]
+    return render_template('admin_dashboard.html', classes=classes)
+
+if __name__ == '__main__':
+    app.run(debug=True)

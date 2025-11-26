@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: att_school_postgres
+    environment:
+      POSTGRES_USER: att_user
+      POSTGRES_PASSWORD: att_password
+      POSTGRES_DB: att_school
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U att_user -d att_school"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - att_network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: att_school_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - att_network
+
+volumes:
+  postgres_data:
+
+networks:
+  att_network:
+    driver: bridge

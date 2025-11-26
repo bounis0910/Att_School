@@ -11,4 +11,25 @@ sudo apt update
 sudo apt install python-is-python3
 sudo apt install python3-pip
 
+sudo apt install python3-psycopg2
 dconf reset -f /org/gnome/
+bash setup_postgresql.sh
+Enter database password (default: password123): Bel@1981
+Enter database name (default: attendance_db): attdbsch
+Enter database user (default: att_user): adminit
+Connection: postgresql+psycopg2://adminit:[password]@localhost:5432/attdbsch
+
+1. Execute automated setup:
+   $ bash setup_postgresql.sh
+
+2. Verify installation:
+   $ python load_test.py
+
+3. Start application:
+   $ python app.py
+
+4. Test in browser:
+   http://localhost:5000
+
+5. Monitor performance:
+   $ python load_test.py (periodically)
