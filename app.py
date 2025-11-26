@@ -1576,5 +1576,5 @@ def admin_export_pdf():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
-    #app.run(host='10.108.97.179', port=5000)
+    #app.run(debug=True)
+    app.run(host='10.108.97.179', port=5000)
