@@ -14,6 +14,7 @@ pip install -r requirements.txt
 ## Step 2: Set up PostgreSQL
 
 ### Option A: Local PostgreSQL (Linux/Mac)
+
 ```bash
 # Install PostgreSQL
 # macOS
@@ -32,6 +33,7 @@ sudo -u postgres psql -c "ALTER USER att_user CREATEDB;"
 ```
 
 ### Option B: Docker PostgreSQL
+
 ```bash
 docker run --name att-postgres \
   -e POSTGRES_USER=att_user \
@@ -63,6 +65,7 @@ python migrate_to_postgresql.py
 ```
 
 ### Migration Output Example:
+
 ```
 PostgreSQL Migration Tool
 ==================================================
@@ -114,6 +117,7 @@ python load_test.py
 ```
 
 ### Load Test Output Example:
+
 ```
 ============================================================
 STARTING LOAD TESTS
@@ -143,14 +147,17 @@ Query: attendance by date/class:
 The migration creates these indexes for optimal performance:
 
 1. **idx_attendance_period_class_teacher** (Composite)
+
    - Columns: `period, class_id, teacher_id`
    - Use: Staff queries filtering by multiple criteria
 
 2. **idx_attendance_student_date_period** (Composite)
+
    - Columns: `student_id, date, period`
    - Use: Individual student attendance lookups
 
 3. **idx_attendance_date_class**
+
    - Columns: `date, class_id`
    - Use: Daily attendance reports
 
@@ -161,28 +168,35 @@ The migration creates these indexes for optimal performance:
 ## Troubleshooting
 
 ### Connection Refused
+
 ```
 Error: could not connect to server: Connection refused
 ```
+
 - Ensure PostgreSQL service is running
 - Check DATABASE_URL in .env file
 - Verify PostgreSQL port is 5432
 
 ### Authentication Failed
+
 ```
 Error: FATAL: role "att_user" does not exist
 ```
+
 - Create user: `sudo -u postgres createuser att_user`
 - Set password: `ALTER USER att_user WITH PASSWORD 'password';`
 
 ### Database Already Exists
+
 ```
 Error: database "att_school" already exists
 ```
+
 - Drop existing: `DROP DATABASE att_school;`
 - Or modify migration script to skip creation
 
 ### Permission Denied on SQLite
+
 - Ensure you have read access to `app.db`
 - Check file permissions: `ls -la app.db`
 
@@ -190,13 +204,13 @@ Error: database "att_school" already exists
 
 ### SQLite vs PostgreSQL
 
-| Operation | SQLite | PostgreSQL |
-|-----------|--------|------------|
-| Single query | 1-2ms | 0.5-1ms |
-| 100 queries | 150-200ms | 45-60ms |
-| Concurrent (10x) | Locks DB | 50-80ms |
+| Operation        | SQLite     | PostgreSQL |
+| ---------------- | ---------- | ---------- |
+| Single query     | 1-2ms      | 0.5-1ms    |
+| 100 queries      | 150-200ms  | 45-60ms    |
+| Concurrent (10x) | Locks DB   | 50-80ms    |
 | Write operations | Sequential | Concurrent |
-| Connections | Limited | Up to 100+ |
+| Connections      | Limited    | Up to 100+ |
 
 ## Next Steps
 
@@ -208,6 +222,7 @@ Error: database "att_school" already exists
 ## Rollback to SQLite
 
 If you need to revert:
+
 ```bash
 # Stop the application
 # Restore from backup or keep using local SQLite

@@ -21,6 +21,7 @@ chmod +x setup_postgresql.sh
 ```
 
 This will:
+
 1. Install PostgreSQL
 2. Create database user and database
 3. Create `.env` file
@@ -82,6 +83,7 @@ nano .env
 ```
 
 Example `.env`:
+
 ```env
 DATABASE_URL=postgresql+psycopg2://att_user:your_secure_password@localhost:5432/attendance_db
 FLASK_ENV=development
@@ -130,6 +132,7 @@ CREATE INDEX idx_teacher_subject_teacher ON teacher_subject(teacher_id);
 ```
 
 These indexes optimize queries for:
+
 - Staff dashboard (date + class queries)
 - Remark updates (student + date queries)
 - Period lookups
@@ -248,6 +251,7 @@ sudo nano /etc/postgresql/14/main/postgresql.conf
 ```
 
 Recommended for development:
+
 ```
 shared_buffers = 256MB
 effective_cache_size = 1GB
@@ -258,6 +262,7 @@ default_statistics_target = 100
 ```
 
 Then restart:
+
 ```bash
 sudo systemctl restart postgresql
 ```
@@ -274,9 +279,9 @@ psql -U att_user -d attendance_db -c "SELECT * FROM pg_stat_activity;"
 
 ```bash
 psql -U att_user -d attendance_db -c "
-SELECT schemaname, tablename, indexname 
-FROM pg_indexes 
-WHERE tablename = 'attendance' 
+SELECT schemaname, tablename, indexname
+FROM pg_indexes
+WHERE tablename = 'attendance'
 ORDER BY indexname;
 "
 ```
@@ -290,16 +295,19 @@ psql -U att_user -d attendance_db -c "EXPLAIN ANALYZE SELECT * FROM attendance W
 ## Next Steps
 
 1. **Start the Flask application:**
+
    ```bash
    python app.py
    ```
 
 2. **Run load tests:**
+
    ```bash
    python load_test.py
    ```
 
 3. **Access the dashboard:**
+
    - Admin: http://localhost:5000/admin/login
    - Staff: http://localhost:5000/staff/login
    - Teacher: http://localhost:5000/teacher/login

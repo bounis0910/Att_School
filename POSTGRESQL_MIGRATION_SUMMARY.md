@@ -7,30 +7,33 @@ You've requested to migrate the Attendance System from SQLite to PostgreSQL with
 ## What Has Been Created
 
 ### 1. **Core Application Files**
+
 - `app_postgresql.py` - Main Flask application refactored for PostgreSQL
 - Uses psycopg2 driver for compatibility
 - Maintains all existing functionality
 - Automatic index creation on initialization
 
 ### 2. **Setup & Installation**
+
 - `setup_postgresql.sh` - Automated setup script (recommended)
   - Installs PostgreSQL
   - Creates user and database
   - Initializes database schema
   - Runs tests
-  
 - `POSTGRESQL_LOCAL_SETUP.md` - Detailed manual setup guide
   - Step-by-step instructions
   - Troubleshooting guide
   - Performance tuning tips
 
 ### 3. **Data Migration**
+
 - `migrate_sqlite_to_postgres.py` - SQLite to PostgreSQL migration tool
   - Safely transfers all data
   - Handles data type conversions
   - Preserves relationships and constraints
 
 ### 4. **Performance Testing**
+
 - `load_test.py` - Comprehensive load testing suite
   - Tests 5 key query types
   - 800+ total operations
@@ -38,6 +41,7 @@ You've requested to migrate the Attendance System from SQLite to PostgreSQL with
   - Performance metrics reporting
 
 ### 5. **Documentation**
+
 - `POSTGRESQL_SETUP_GUIDE.md` - Complete setup and operation guide
 - `POSTGRESQL_MIGRATION_CHECKLIST.md` - Step-by-step migration checklist
 - `POSTGRESQL_LOCAL_SETUP.md` - Quick reference guide
@@ -45,6 +49,7 @@ You've requested to migrate the Attendance System from SQLite to PostgreSQL with
 ## Database Schema
 
 ### Tables Created
+
 - `user` - User accounts (admin, staff, teacher)
 - `school_class` - Classes
 - `student` - Student records
@@ -54,6 +59,7 @@ You've requested to migrate the Attendance System from SQLite to PostgreSQL with
 - `teacher_subject` - Teacher-subject assignments
 
 ### Key Features
+
 - UTF-8 encoding support
 - Timezone support (UTC/Asia/Qatar)
 - Automatic timestamps (created_at, updated_at)
@@ -83,12 +89,14 @@ idx_teacher_subject_teacher    -- For teacher subjects
 ## Performance Improvements
 
 ### Expected Performance Gains:
+
 - **Query Speed**: 10-100x faster than SQLite for complex queries
 - **Concurrency**: True MVCC (Multi-Version Concurrency Control)
 - **Scalability**: Handles 1000+ concurrent users
 - **Data Integrity**: ACID compliance with transactions
 
 ### Benchmark Results (from load_test.py):
+
 ```
 Query Type                          Operations    Expected Rate
 Date & Class Queries                200/query     ~1000 queries/sec
@@ -101,12 +109,14 @@ Distinct Periods Queries            100/query     ~900 queries/sec
 ## Quick Start Steps
 
 ### 1. Automated Setup (Recommended)
+
 ```bash
 chmod +x setup_postgresql.sh
 bash setup_postgresql.sh
 ```
 
 ### 2. Manual Setup
+
 ```bash
 # Install PostgreSQL
 sudo apt install -y postgresql postgresql-contrib
@@ -130,16 +140,19 @@ flask --app app init-db
 ```
 
 ### 3. Migrate Data (if from SQLite)
+
 ```bash
 python migrate_sqlite_to_postgres.py --sqlite app.db
 ```
 
 ### 4. Run Load Tests
+
 ```bash
 python load_test.py
 ```
 
 ### 5. Start Application
+
 ```bash
 python app.py
 ```
@@ -147,6 +160,7 @@ python app.py
 ## Configuration
 
 ### .env File Template
+
 ```env
 DATABASE_URL=postgresql+psycopg2://att_user:password@localhost:5432/attendance_db
 FLASK_ENV=development
@@ -156,6 +170,7 @@ FLASK_DEBUG=1
 ```
 
 ### Required Python Packages
+
 ```
 Flask==3.0.0
 Flask-Login==0.6.2
@@ -198,12 +213,14 @@ Werkzeug==3.0.0
 ### Common Issues:
 
 **PostgreSQL not starting:**
+
 ```bash
 sudo systemctl restart postgresql
 sudo systemctl status postgresql
 ```
 
 **Connection refused:**
+
 ```bash
 # Check if PostgreSQL is listening
 sudo netstat -tlnp | grep 5432
@@ -213,12 +230,14 @@ sudo ufw allow 5432/tcp
 ```
 
 **Permission denied:**
+
 ```bash
 # Fix socket permissions
 sudo chmod 775 /var/run/postgresql
 ```
 
 **Database not found:**
+
 ```bash
 # Check if database exists
 psql -U att_user -d attendance_db -c "SELECT 1"
@@ -230,6 +249,7 @@ flask --app app init-db
 ## Monitoring & Maintenance
 
 ### Check Database Health
+
 ```bash
 # Check size
 psql -U att_user -d attendance_db -c "SELECT pg_size_pretty(pg_database_size('attendance_db'));"
@@ -242,6 +262,7 @@ psql -U att_user -d attendance_db -c "EXPLAIN ANALYZE SELECT * FROM attendance W
 ```
 
 ### Backup Schedule
+
 ```bash
 # Daily backup
 pg_dump -U att_user -d attendance_db > backup_$(date +%Y%m%d).sql
@@ -253,11 +274,13 @@ pg_dump -U att_user -d attendance_db > backup_$(date +%Y%m%d).sql
 ## Support & Documentation
 
 ### Internal Documentation:
+
 - `POSTGRESQL_SETUP_GUIDE.md` - Complete operational guide
 - `POSTGRESQL_LOCAL_SETUP.md` - Quick setup reference
 - `POSTGRESQL_MIGRATION_CHECKLIST.md` - Migration checklist
 
 ### External Resources:
+
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [psycopg2 Documentation](https://www.psycopg.org/)
 - [Flask Documentation](https://flask.palletsprojects.com/)

@@ -100,6 +100,7 @@ EOF
 ## Troubleshooting
 
 ### Permission Denied Error
+
 ```bash
 # Fix PostgreSQL socket permissions
 sudo chmod 775 /var/run/postgresql
@@ -107,6 +108,7 @@ sudo chmod 775 /var/run/postgresql/.s.PGSQL.5432
 ```
 
 ### Can't Connect to PostgreSQL
+
 ```bash
 # Check if PostgreSQL is running
 sudo systemctl status postgresql
@@ -119,6 +121,7 @@ sudo systemctl restart postgresql
 ```
 
 ### Reset PostgreSQL Password
+
 ```bash
 sudo -u postgres psql
 ALTER USER att_user WITH PASSWORD 'new_password';
@@ -126,6 +129,7 @@ ALTER USER att_user WITH PASSWORD 'new_password';
 ```
 
 ### Drop and Recreate Database
+
 ```bash
 sudo -u postgres psql << EOF
 DROP DATABASE IF EXISTS attendance_db;
@@ -145,11 +149,13 @@ EOF
 ## Backup and Restore
 
 ### Backup Database
+
 ```bash
 pg_dump -U att_user -d attendance_db > attendance_backup.sql
 ```
 
 ### Restore Database
+
 ```bash
 psql -U att_user -d attendance_db < attendance_backup.sql
 ```
@@ -179,6 +185,7 @@ max_wal_size = 4GB
 ```
 
 Then restart PostgreSQL:
+
 ```bash
 sudo systemctl restart postgresql
 ```

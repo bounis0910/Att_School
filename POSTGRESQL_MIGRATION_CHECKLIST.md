@@ -1,6 +1,7 @@
 # PostgreSQL Migration Checklist
 
 ## Pre-Migration
+
 - [ ] Backup current SQLite database
   ```bash
   cp app.db app.db.backup
@@ -11,6 +12,7 @@
 ## Installation (Choose One)
 
 ### Option A: Automated Setup (Recommended)
+
 - [ ] Run automated setup script
   ```bash
   chmod +x setup_postgresql.sh
@@ -18,6 +20,7 @@
   ```
 
 ### Option B: Manual Setup
+
 - [ ] Install PostgreSQL: `sudo apt install -y postgresql postgresql-contrib`
 - [ ] Start service: `sudo systemctl start postgresql`
 - [ ] Create user: `sudo -u postgres psql` then run SQL commands
@@ -26,6 +29,7 @@
 - [ ] Initialize database: `flask --app app init-db`
 
 ## Data Migration
+
 - [ ] Verify PostgreSQL is running and accessible
 - [ ] Backup SQLite data one more time
 - [ ] Run migration script (if migrating existing data)
@@ -38,12 +42,14 @@
   ```
 
 ## Configuration
+
 - [ ] Update .env file with correct DATABASE_URL
 - [ ] Set TIMEZONE to Asia/Qatar
 - [ ] Set FLASK_ENV to development or production
 - [ ] Generate new SECRET_KEY
 
 ## Verification
+
 - [ ] Test database connection
   ```bash
   psql -U att_user -d attendance_db -c "SELECT NOW();"
@@ -58,6 +64,7 @@
   ```
 
 ## Application Testing
+
 - [ ] Start Flask app: `python app.py`
 - [ ] Test admin login
 - [ ] Test staff dashboard
@@ -67,6 +74,7 @@
 - [ ] Test notes functionality
 
 ## Performance Testing
+
 - [ ] Run load tests: `python load_test.py`
 - [ ] Monitor query performance
 - [ ] Check database size
@@ -76,6 +84,7 @@
   ```
 
 ## Backup & Recovery
+
 - [ ] Test backup procedure
   ```bash
   pg_dump -U att_user -d attendance_db > backup_test.sql
@@ -85,12 +94,14 @@
 - [ ] Set up automated backups (if needed)
 
 ## Documentation
+
 - [ ] Update deployment documentation
 - [ ] Document connection string format
 - [ ] Document user credentials location
 - [ ] Document maintenance procedures
 
 ## Production Deployment (If Applicable)
+
 - [ ] Test in staging environment first
 - [ ] Prepare rollback plan
 - [ ] Schedule maintenance window
@@ -100,6 +111,7 @@
 - [ ] Monitor for 24-48 hours post-migration
 
 ## Post-Migration
+
 - [ ] Monitor application performance
 - [ ] Check error logs
 - [ ] Verify all features working
@@ -109,6 +121,7 @@
 ## Quick Commands Reference
 
 ### Database Management
+
 ```bash
 # Start PostgreSQL
 sudo systemctl start postgresql
@@ -130,6 +143,7 @@ SELECT * FROM pg_indexes WHERE tablename='attendance';
 ```
 
 ### Backup & Restore
+
 ```bash
 # Backup
 pg_dump -U att_user -d attendance_db > backup.sql
@@ -142,6 +156,7 @@ pg_dump -U att_user -d attendance_db | gzip > backup.sql.gz
 ```
 
 ### Application
+
 ```bash
 # Initialize database
 flask --app app init-db
@@ -157,6 +172,7 @@ python load_test.py
 ```
 
 ### Troubleshooting
+
 ```bash
 # Check if PostgreSQL is running
 ps aux | grep postgres

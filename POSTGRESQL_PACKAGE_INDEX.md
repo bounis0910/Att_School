@@ -7,11 +7,13 @@ All files needed to migrate from SQLite to PostgreSQL are included.
 ## 🚀 Start Here
 
 ### Quick Start (Recommended)
+
 1. Read: `README_POSTGRESQL.md`
 2. Run: `bash setup_postgresql.sh`
 3. Test: `python load_test.py`
 
 ### Detailed Documentation
+
 - `POSTGRESQL_SETUP_GUIDE.md` - Complete setup instructions
 - `POSTGRESQL_MIGRATION_CHECKLIST.md` - Step-by-step verification
 - `POSTGRESQL_LOCAL_SETUP.md` - Manual setup details
@@ -19,6 +21,7 @@ All files needed to migrate from SQLite to PostgreSQL are included.
 ## 📁 Files Overview
 
 ### Application & Setup
+
 ```
 app_postgresql.py              - PostgreSQL version of Flask app
 setup_postgresql.sh            - Automated setup script
@@ -27,16 +30,19 @@ requirements-postgres.txt      - Python dependencies
 ```
 
 ### Data Migration
+
 ```
 migrate_sqlite_to_postgres.py  - SQLite → PostgreSQL migration tool
 ```
 
 ### Testing & Benchmarking
+
 ```
 load_test.py                   - Performance benchmark suite
 ```
 
 ### Documentation
+
 ```
 README_POSTGRESQL.md           - Quick reference & overview
 POSTGRESQL_MIGRATION_SUMMARY.md - Complete overview
@@ -48,6 +54,7 @@ POSTGRESQL_MIGRATION_CHECKLIST.md - Migration verification
 ## 🎯 What You're Getting
 
 ### Database Features
+
 - ✅ PostgreSQL with psycopg2 driver
 - ✅ Optimized indexes on:
   - period
@@ -60,12 +67,14 @@ POSTGRESQL_MIGRATION_CHECKLIST.md - Migration verification
 - ✅ Notes functionality
 
 ### Performance
+
 - ✅ 10-100x faster than SQLite
 - ✅ Concurrent user support (1000+)
 - ✅ Sub-millisecond queries
 - ✅ Built-in transaction support
 
 ### Tools Included
+
 - ✅ Automated setup script
 - ✅ Data migration tool
 - ✅ Load testing suite
@@ -106,17 +115,18 @@ idx_teacher_subject_teacher    ← Teacher subjects
 
 ## 📊 Expected Performance
 
-| Query Type | Rate |
-|------------|------|
-| Date & Class | 1000 queries/sec |
-| Period/Class/Teacher | 500 queries/sec |
-| Student Attendance | 800 queries/sec |
-| Dashboard Counts | 1200 queries/sec |
-| Distinct Periods | 900 queries/sec |
+| Query Type           | Rate             |
+| -------------------- | ---------------- |
+| Date & Class         | 1000 queries/sec |
+| Period/Class/Teacher | 500 queries/sec  |
+| Student Attendance   | 800 queries/sec  |
+| Dashboard Counts     | 1200 queries/sec |
+| Distinct Periods     | 900 queries/sec  |
 
 ## ✅ Verification Checklist
 
 After setup, verify:
+
 - [ ] PostgreSQL running: `sudo systemctl status postgresql`
 - [ ] Database created: `psql -U att_user -d attendance_db -c "\dt"`
 - [ ] Tables exist: Should show 7 tables
@@ -127,6 +137,7 @@ After setup, verify:
 ## 🆘 Troubleshooting
 
 ### Connection Issues
+
 ```bash
 # Check if PostgreSQL is running
 sudo systemctl restart postgresql
@@ -136,6 +147,7 @@ psql -U att_user -d attendance_db -c "SELECT 1"
 ```
 
 ### Database Issues
+
 ```bash
 # Check tables
 psql -U att_user -d attendance_db -c "\dt"
@@ -145,6 +157,7 @@ flask --app app init-db
 ```
 
 ### Permission Issues
+
 ```bash
 # Fix socket permissions
 sudo chmod 775 /var/run/postgresql
@@ -153,6 +166,7 @@ sudo chmod 775 /var/run/postgresql
 ## 📞 Support Files
 
 For specific help, see:
+
 - Setup issues → `POSTGRESQL_SETUP_GUIDE.md`
 - Migration issues → `POSTGRESQL_MIGRATION_CHECKLIST.md`
 - Quick reference → `README_POSTGRESQL.md`
@@ -161,17 +175,20 @@ For specific help, see:
 ## 🎓 Key Concepts
 
 ### Why PostgreSQL?
+
 - **ACID Compliance**: Data integrity guaranteed
 - **Concurrency**: Multiple users without locking
 - **Performance**: Indexes and query optimization
 - **Scalability**: From small to enterprise scale
 
 ### Indexes Explained
+
 - **Single column**: Fast lookups on one field
 - **Composite**: Fast lookups on multiple fields together
 - **Query plans**: PostgreSQL automatically uses best index
 
 ### Timestamps
+
 - `created_at`: Set when record first created
 - `updated_at`: Updated every time record modified
 - Useful for audit trails and reporting
