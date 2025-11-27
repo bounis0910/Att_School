@@ -10,9 +10,17 @@ pip install reportlab
 sudo apt update
 sudo apt install python-is-python3
 sudo apt install python3-pip
+sudo apt install python3-dotenv
 
 sudo apt install python3-psycopg2
+sudo apt install python3.12-venv
+python -m venv venv
+cd venv/bin
+source ./activate
+
+-------------------------------------
 dconf reset -f /org/gnome/
+-------------------------------------
 bash setup_postgresql.sh
 Enter database password (default: password123): Bel@1981
 Enter database name (default: attendance_db): attdbsch
@@ -50,3 +58,4 @@ C:\Program Files\PostgreSQL\18\bin
 psql --version
 createuser -U postgres -P -s myadmin
 createdb -U adminit attdbsch
+------------
