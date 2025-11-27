@@ -33,3 +33,20 @@ Connection: postgresql+psycopg2://adminit:[password]@localhost:5432/attdbsch
 
 5. Monitor performance:
    $ python load_test.py (periodically)
+
+
+   --------------
+
+   psql.exe
+pg_dump.exe
+createdb.exe
+
+1. Open Start Menu → Edit the system environment variables
+(or run: SystemPropertiesAdvanced.exe)
+2. Click Environment Variables
+3. In "System variables", select Path → Edit
+4. Click New and add:
+C:\Program Files\PostgreSQL\18\bin
+psql --version
+createuser -U postgres -P -s myadmin
+createdb -U adminit attdbsch
