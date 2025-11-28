@@ -298,7 +298,7 @@ def admin_users():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM \"user\" ORDER BY name LIMIT 100")
+        cursor.execute("SELECT * FROM \"user\" ORDER BY role LIMIT 100")
         users_rows = cursor.fetchall()
         users = [RowObject(dict(r)) for r in users_rows]
     except:
@@ -388,41 +388,223 @@ def admin_attendance():
     
     return render_template('admin_attendance.html', attendance=attendance)
 
-# ================ Placeholder Routes ================
+# ================ User Management Routes ================
 
-@app.route('/admin/users/form', methods=['GET', 'POST'])
+@app.route('/admin/users/create', methods=['GET', 'POST'])
 @login_required
-def admin_user_form():
+def admin_users_create():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
     return render_template('admin_user_form.html')
 
-@app.route('/admin/students/form', methods=['GET', 'POST'])
+@app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @login_required
-def admin_student_form():
+def admin_users_edit(user_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    return render_template('admin_user_form.html')
+
+@app.route('/admin/users/<int:user_id>/reset-password', methods=['GET', 'POST'])
+@login_required
+def admin_users_reset_password(user_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    return render_template('admin_reset_password.html')
+
+@app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def admin_users_delete(user_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    flash('User deleted', 'success')
+    return redirect(url_for('admin_users'))
+
+# ================ Student Management Routes ================
+
+@app.route('/admin/students/create', methods=['GET', 'POST'])
+@login_required
+def admin_students_create():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
     return render_template('admin_student_form.html')
 
-@app.route('/admin/classes/form', methods=['GET', 'POST'])
+@app.route('/admin/students/<int:student_id>/edit', methods=['GET', 'POST'])
 @login_required
-def admin_class_form():
+def admin_students_edit(student_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    return render_template('admin_student_form.html')
+
+@app.route('/admin/students/<int:student_id>/delete', methods=['POST'])
+@login_required
+def admin_students_delete(student_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    flash('Student deleted', 'success')
+    return redirect(url_for('admin_students'))
+
+# ================ Class Management Routes ================
+
+@app.route('/admin/classes/create', methods=['GET', 'POST'])
+@login_required
+def admin_classes_create():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
     return render_template('admin_class_form.html')
 
-@app.route('/admin/subjects/form', methods=['GET', 'POST'])
+@app.route('/admin/classes/<int:class_id>/edit', methods=['GET', 'POST'])
 @login_required
-def admin_subject_form():
+def admin_classes_edit(class_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    return render_template('admin_class_form.html')
+
+@app.route('/admin/classes/<int:class_id>/delete', methods=['POST'])
+@login_required
+def admin_classes_delete(class_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    flash('Class deleted', 'success')
+    return redirect(url_for('admin_classes'))
+
+# ================ Subject Management Routes ================
+
+@app.route('/admin/subjects/create', methods=['GET', 'POST'])
+@login_required
+def admin_subjects_create():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
     return render_template('admin_subject_form.html')
+
+@app.route('/admin/subjects/<int:subject_id>/edit', methods=['GET', 'POST'])
+@login_required
+def admin_subjects_edit(subject_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    return render_template('admin_subject_form.html')
+
+@app.route('/admin/subjects/<int:subject_id>/delete', methods=['POST'])
+@login_required
+def admin_subjects_delete(subject_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    flash('Subject deleted', 'success')
+    return redirect(url_for('admin_subjects'))
+
+# ================ Period Management Routes ================
 
 @app.route('/admin/periods', methods=['GET', 'POST'])
 @login_required
 def admin_periods():
-    return render_template('admin_periods.html')
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM period ORDER BY id")
+        periods_rows = cursor.fetchall()
+        periods = [RowObject(dict(r)) for r in periods_rows]
+    except:
+        periods = []
+    return render_template('admin_periods.html', periods=periods)
 
-@app.route('/admin/periods/form', methods=['GET', 'POST'])
+@app.route('/admin/periods/create', methods=['GET', 'POST'])
 @login_required
-def admin_period_form():
+def admin_periods_create():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
     return render_template('admin_period_form.html')
+
+@app.route('/admin/periods/<int:period_id>/edit', methods=['GET', 'POST'])
+@login_required
+def admin_periods_edit(period_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    return render_template('admin_period_form.html')
+
+@app.route('/admin/periods/<int:period_id>/delete', methods=['POST'])
+@login_required
+def admin_periods_delete(period_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    flash('Period deleted', 'success')
+    return redirect(url_for('admin_periods'))
+
+# ================ Attendance Routes ================
+
+@app.route('/admin/attendance/<int:att_id>/delete', methods=['POST'])
+@login_required
+def admin_attendance_delete(att_id):
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    flash('Attendance record deleted', 'success')
+    return redirect(url_for('admin_attendance'))
+
+# ================ Teacher Routes ================
+
+@app.route('/teacher/classes', methods=['GET'])
+@login_required
+def teacher_classes():
+    if current_user.role != 'teacher':
+        return redirect(url_for('index'))
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT c.* FROM school_class c
+            LEFT JOIN teacher_subject ts ON c.id = ts.class_id
+            WHERE ts.teacher_id = %s
+            ORDER BY c.name
+        """, (current_user.id,))
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    return render_template('teacher_classes.html', classes=classes)
+
+@app.route('/teacher/class/<int:class_id>/select', methods=['GET'])
+@login_required
+def teacher_select_class(class_id):
+    if current_user.role != 'teacher':
+        return redirect(url_for('index'))
+    session['selected_class_id'] = class_id
+    return redirect(url_for('teacher_dashboard'))
+
+# ================ Password Management Routes ================
 
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
 def change_password():
+    if request.method == 'POST':
+        old_pw = request.form.get('old_password')
+        new_pw = request.form.get('new_password')
+        confirm_pw = request.form.get('confirm_password')
+        
+        if new_pw != confirm_pw:
+            flash('Passwords do not match', 'danger')
+            return render_template('change_password.html')
+        
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute('SELECT password FROM "user" WHERE id = %s', (current_user.id,))
+            row = cursor.fetchone()
+            
+            if row and check_password_hash(row['password'], old_pw):
+                hashed_new = generate_password_hash(new_pw, method='scrypt')
+                cursor.execute(
+                    'UPDATE "user" SET password = %s WHERE id = %s',
+                    (hashed_new, current_user.id)
+                )
+                conn.commit()
+                flash('Password changed successfully', 'success')
+                return redirect(url_for('admin_dashboard' if current_user.role == 'admin' else 'staff_dashboard' if current_user.role == 'staff' else 'teacher_dashboard'))
+            else:
+                flash('Old password is incorrect', 'danger')
+        except Exception as e:
+            print(f"Error changing password: {e}")
+            flash('Error changing password', 'danger')
+    
     return render_template('change_password.html')
 
 # Error handlers
