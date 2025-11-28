@@ -1,5 +1,5 @@
 """
-Attendance System - PostgreSQL with psycopg2
+Attendance System - PostgreSQL with Pure psycopg2 (No SQLAlchemy)
 """
 import os
 import re
@@ -17,9 +17,9 @@ from io import BytesIO
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
-# PostgreSQL imports - psycopg2 only (no SQLAlchemy async)
+# PostgreSQL imports - pure psycopg2 only
 import psycopg2
-from psycopg2 import sql
+from psycopg2.extras import RealDictCursor
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -80,10 +80,11 @@ login_manager.login_view = 'admin_login'
 
 # Database connection helper
 def get_db():
-    """Get synchronous database connection"""
+    """Get database connection with RealDictCursor"""
     db_conn = getattr(g, '_database', None)
     if db_conn is None:
         db_conn = g._database = psycopg2.connect(**db_params)
+        db_conn.cursor_factory = RealDictCursor
     return db_conn
 
 @app.teardown_appcontext
@@ -98,194 +99,50 @@ class RowObject:
         if isinstance(row, dict):
             self._row = row
         else:
-            # Handle tuple/list from cursor
-            self._row = row
+            self._row = dict(row) if row else {}
     
     def __getattr__(self, name):
         if name.startswith('_'):
             return object.__getattribute__(self, name)
-        try:
-            if hasattr(self._row, name):
-                return getattr(self._row, name)
-            if isinstance(self._row, dict):
-                return self._row.get(name)
-            return self._row[name]
-        except (KeyError, TypeError, IndexError):
-            return None
+        return self._row.get(name)
 
 class SimpleUser(UserMixin):
-    """Lightweight user adapter for Flask-Login."""
+    """User adapter for Flask-Login."""
     def __init__(self, row):
-        self._row = row
-        self.id = row.get('id') if isinstance(row, dict) else row['id']
-        self.name = row.get('name') if isinstance(row, dict) else row['name']
-        self.role = row.get('role') if isinstance(row, dict) else row['role']
-        self.password_hash = row.get('password_hash') if isinstance(row, dict) else row['password_hash']
+        if isinstance(row, dict):
+            self.id = row.get('id')
+            self.username = row.get('username') or row.get('name')
+            self.name = row.get('name')
+            self.role = row.get('role')
+            self.password = row.get('password') or row.get('password_hash')
+        else:
+            self.id = None
+            self.username = None
+            self.name = None
+            self.role = None
+            self.password = None
 
-    def is_authenticated(self):
-        return True
-    
-    def is_active(self):
-        return True
-    
-    def is_anonymous(self):
-        return False
-    
     def get_id(self):
         return str(self.id)
     
     def check_password(self, pw):
-        return check_password_hash(self.password_hash, pw)
+        return check_password_hash(self.password, pw) if self.password else False
 
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db()
-    row = conn.execute(text("SELECT * FROM \"user\" WHERE id = :id"), {'id': int(user_id)}).fetchone()
-    if row:
-        row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
-        return SimpleUser(row_dict)
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM "user" WHERE id = %s', (int(user_id),))
+        row = cursor.fetchone()
+        if row:
+            return SimpleUser(dict(row))
+    except:
+        pass
     return None
 
-# CLI Commands
-@app.cli.command('init-db')
-def init_db():
-    """Initialize database with tables and indexes."""
-    conn = sync_engine.connect()
-    
-    # Create tables
-    sql = """
-    CREATE TABLE IF NOT EXISTS "user" (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(150) NOT NULL,
-        role VARCHAR(50) NOT NULL,
-        password_hash VARCHAR(200),
-        national_id VARCHAR(50),
-        classes VARCHAR(200),
-        email VARCHAR(150),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+# ================== Routes ==================
 
-    CREATE TABLE IF NOT EXISTS school_class (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(120) NOT NULL UNIQUE
-    );
-
-    CREATE TABLE IF NOT EXISTS subject (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(120) NOT NULL UNIQUE
-    );
-
-    CREATE TABLE IF NOT EXISTS student (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(150) NOT NULL,
-        class_id INTEGER REFERENCES school_class(id) ON DELETE CASCADE,
-        national_id VARCHAR(50),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS period (
-        id SERIAL PRIMARY KEY,
-        day_of_week INTEGER NOT NULL,
-        period INTEGER NOT NULL,
-        start_time VARCHAR(8),
-        end_time VARCHAR(8),
-        class_id INTEGER REFERENCES school_class(id) ON DELETE CASCADE,
-        subject_id INTEGER REFERENCES subject(id) ON DELETE CASCADE,
-        UNIQUE(day_of_week, period, class_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS attendance (
-        id SERIAL PRIMARY KEY,
-        student_id INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
-        date VARCHAR(20) NOT NULL,
-        period INTEGER NOT NULL,
-        status VARCHAR(20) NOT NULL,
-        class_id INTEGER NOT NULL REFERENCES school_class(id) ON DELETE CASCADE,
-        teacher_id INTEGER REFERENCES "user"(id) ON DELETE SET NULL,
-        remark VARCHAR(50),
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(student_id, date, period)
-    );
-
-    CREATE TABLE IF NOT EXISTS teacher_subject (
-        id SERIAL PRIMARY KEY,
-        teacher_id INTEGER REFERENCES "user"(id) ON DELETE CASCADE,
-        subject_id INTEGER REFERENCES subject(id) ON DELETE CASCADE,
-        class_id INTEGER REFERENCES school_class(id) ON DELETE CASCADE
-    );
-    """
-    
-    for statement in sql.split(';'):
-        if statement.strip():
-            conn.execute(text(statement))
-    
-    conn.commit()
-
-    # Create indexes
-    indexes_sql = """
-    CREATE INDEX IF NOT EXISTS idx_attendance_period ON attendance(period);
-    CREATE INDEX IF NOT EXISTS idx_attendance_class_id ON attendance(class_id);
-    CREATE INDEX IF NOT EXISTS idx_attendance_teacher_id ON attendance(teacher_id);
-    CREATE INDEX IF NOT EXISTS idx_attendance_student_id ON attendance(student_id);
-    CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
-    CREATE INDEX IF NOT EXISTS idx_attendance_student_date ON attendance(student_id, date);
-    CREATE INDEX IF NOT EXISTS idx_attendance_date_class ON attendance(date, class_id);
-    CREATE INDEX IF NOT EXISTS idx_student_class_id ON student(class_id);
-    CREATE INDEX IF NOT EXISTS idx_period_class_id ON period(class_id);
-    CREATE INDEX IF NOT EXISTS idx_teacher_subject_teacher ON teacher_subject(teacher_id);
-    """
-    
-    for statement in indexes_sql.split(';'):
-        if statement.strip():
-            try:
-                conn.execute(text(statement))
-                conn.commit()
-            except Exception as e:
-                print(f"Index creation note: {e}")
-    
-    # Create default admin
-    try:
-        admin = conn.execute(text("SELECT id FROM \"user\" WHERE role = 'admin' LIMIT 1")).fetchone()
-        if not admin:
-            pw_hash = generate_password_hash('admin')
-            conn.execute(text(
-                "INSERT INTO \"user\" (name, role, password_hash) VALUES (:name, :role, :hash)"
-            ), {'name': 'Administrator', 'role': 'admin', 'hash': pw_hash})
-            conn.commit()
-            print('Created default admin (username: Administrator, password: admin)')
-    except Exception as e:
-        print(f"Admin creation note: {e}")
-    
-    conn.close()
-    print('Database initialized successfully')
-
-@app.cli.command('add-attendance-columns')
-def add_attendance_columns():
-    """Add missing columns to attendance table if they don't exist."""
-    conn = sync_engine.connect()
-    
-    columns_to_add = [
-        ("notes", "TEXT"),
-        ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
-        ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
-    ]
-    
-    for col_name, col_type in columns_to_add:
-        try:
-            conn.execute(text(f"ALTER TABLE attendance ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-            print(f'Added {col_name} column to attendance table')
-        except Exception as e:
-            if 'already exists' in str(e):
-                print(f'{col_name} column already exists')
-            else:
-                print(f'Note: {e}')
-    
-    conn.close()
-
-# Routes (keeping existing routes - they remain the same)
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -293,48 +150,88 @@ def index():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        name = request.form['name']
-        pw = request.form['password']
-        conn = get_db()
-        row = conn.execute(text(
-            'SELECT * FROM "user" WHERE name = :name AND role = :role LIMIT 1'
-        ), {'name': name, 'role': 'admin'}).fetchone()
-        if row:
-            row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
-            user = SimpleUser(row_dict)
-            if user.check_password(pw):
-                login_user(user)
-                return redirect(url_for('admin_dashboard'))
+        username = request.form.get('name') or request.form.get('username')
+        pw = request.form.get('password')
+        
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM "user" WHERE username = %s AND role = %s LIMIT 1',
+                (username, 'admin')
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                user = SimpleUser(dict(row))
+                if user.check_password(pw):
+                    login_user(user)
+                    return redirect(url_for('admin_dashboard'))
+        except Exception as e:
+            print(f"Login error: {e}")
+        
         flash('Invalid credentials', 'danger')
+    
     return render_template('admin_login.html')
 
 @app.route('/staff/login', methods=['GET', 'POST'])
 def staff_login():
     if request.method == 'POST':
-        email = request.form['email']
-        pw = request.form['password']
-        conn = get_db()
-        row = conn.execute(text(
-            'SELECT * FROM "user" WHERE email = :email AND role = :role LIMIT 1'
-        ), {'email': email, 'role': 'staff'}).fetchone()
-        if row:
-            row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
-            user = SimpleUser(row_dict)
-            if user.check_password(pw):
-                login_user(user)
-                return redirect(url_for('staff_dashboard'))
+        username = request.form.get('username')
+        pw = request.form.get('password')
+        
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM "user" WHERE username = %s AND role = %s LIMIT 1',
+                (username, 'staff')
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                user = SimpleUser(dict(row))
+                if user.check_password(pw):
+                    login_user(user)
+                    return redirect(url_for('staff_dashboard'))
+        except Exception as e:
+            print(f"Login error: {e}")
+        
         flash('Invalid credentials', 'danger')
+    
     return render_template('staff_login.html')
+
+@app.route('/teacher/login', methods=['GET', 'POST'])
+def teacher_login():
+    if request.method == 'POST':
+        username = request.form.get('name') or request.form.get('username')
+        pw = request.form.get('password')
+        
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM "user" WHERE username = %s AND role = %s LIMIT 1',
+                (username, 'teacher')
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                user = SimpleUser(dict(row))
+                if user.check_password(pw):
+                    login_user(user)
+                    return redirect(url_for('teacher_dashboard'))
+        except Exception as e:
+            print(f"Login error: {e}")
+        
+        flash('Invalid credentials', 'danger')
+    
+    return render_template('teacher_login.html')
 
 @app.route('/logout')
 def logout():
     logout_user()
     return redirect(url_for('index'))
-
-# ============= Continue with other routes =============
-# All other routes remain the same (admin_dashboard, admin_users, etc.)
-# Just ensure they use the get_db() function which now points to PostgreSQL
-# =====================================================
 
 @app.route('/admin/dashboard')
 @login_required
@@ -342,10 +239,200 @@ def admin_dashboard():
     if current_user.role != 'admin':
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
-    conn = get_db()
-    classes_rows = conn.execute(text("SELECT * FROM school_class ORDER BY name")).fetchall()
-    classes = [RowObject(dict(r._mapping) if hasattr(r, '_mapping') else dict(r)) for r in classes_rows]
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    
     return render_template('admin_dashboard.html', classes=classes)
+
+@app.route('/staff/dashboard')
+@login_required
+def staff_dashboard():
+    if current_user.role != 'staff':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    
+    return render_template('staff_dashboard.html', classes=classes)
+
+@app.route('/teacher/dashboard')
+@login_required
+def teacher_dashboard():
+    if current_user.role != 'teacher':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    
+    return render_template('teacher_dashboard.html', classes=classes)
+
+# ================ Admin Routes ================
+
+@app.route('/admin/users')
+@login_required
+def admin_users():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM \"user\" ORDER BY name LIMIT 100")
+        users_rows = cursor.fetchall()
+        users = [RowObject(dict(r)) for r in users_rows]
+    except:
+        users = []
+    
+    return render_template('admin_users.html', users=users)
+
+@app.route('/admin/students')
+@login_required
+def admin_students():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.*, c.name as class_name FROM student s
+            LEFT JOIN school_class c ON s.class_id = c.id
+            ORDER BY s.name LIMIT 500
+        """)
+        students_rows = cursor.fetchall()
+        students = [RowObject(dict(r)) for r in students_rows]
+    except:
+        students = []
+    
+    return render_template('admin_students.html', students=students)
+
+@app.route('/admin/classes')
+@login_required
+def admin_classes():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    
+    return render_template('admin_classes.html', classes=classes)
+
+@app.route('/admin/subjects')
+@login_required
+def admin_subjects():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM subject ORDER BY name")
+        subjects_rows = cursor.fetchall()
+        subjects = [RowObject(dict(r)) for r in subjects_rows]
+    except:
+        subjects = []
+    
+    return render_template('admin_subjects.html', subjects=subjects)
+
+@app.route('/admin/attendance')
+@login_required
+def admin_attendance():
+    if current_user.role != 'admin':
+        return redirect(url_for('index'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        today = get_current_date()
+        cursor.execute("""
+            SELECT a.*, s.name as student_name, c.name as class_name, u.name as teacher_name
+            FROM attendance a
+            LEFT JOIN student s ON a.student_id = s.id
+            LEFT JOIN school_class c ON a.class_id = c.id
+            LEFT JOIN "user" u ON a.teacher_id = u.id
+            WHERE a.date = %s
+            ORDER BY c.name, a.period
+            LIMIT 500
+        """, (today,))
+        attendance_rows = cursor.fetchall()
+        attendance = [RowObject(dict(r)) for r in attendance_rows]
+    except:
+        attendance = []
+    
+    return render_template('admin_attendance.html', attendance=attendance)
+
+# ================ Placeholder Routes ================
+
+@app.route('/admin/users/form', methods=['GET', 'POST'])
+@login_required
+def admin_user_form():
+    return render_template('admin_user_form.html')
+
+@app.route('/admin/students/form', methods=['GET', 'POST'])
+@login_required
+def admin_student_form():
+    return render_template('admin_student_form.html')
+
+@app.route('/admin/classes/form', methods=['GET', 'POST'])
+@login_required
+def admin_class_form():
+    return render_template('admin_class_form.html')
+
+@app.route('/admin/subjects/form', methods=['GET', 'POST'])
+@login_required
+def admin_subject_form():
+    return render_template('admin_subject_form.html')
+
+@app.route('/admin/periods', methods=['GET', 'POST'])
+@login_required
+def admin_periods():
+    return render_template('admin_periods.html')
+
+@app.route('/admin/periods/form', methods=['GET', 'POST'])
+@login_required
+def admin_period_form():
+    return render_template('admin_period_form.html')
+
+@app.route('/change_password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    return render_template('change_password.html')
+
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return render_template('index.html'), 404
+
+@app.errorhandler(500)
+def server_error(error):
+    return render_template('index.html'), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
