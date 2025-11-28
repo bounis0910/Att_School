@@ -1,5 +1,5 @@
 """
-Attendance System - PostgreSQL with psycopg2
+Attendance System - PostgreSQL + asyncpg version with async support
 """
 import os
 import re
@@ -17,9 +17,11 @@ from io import BytesIO
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
-# PostgreSQL imports - psycopg2 only (no SQLAlchemy async)
-import psycopg2
-from psycopg2 import sql
+# PostgreSQL imports
+from sqlalchemy import create_engine, text, Index
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
+import asyncio
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -39,37 +41,19 @@ def get_current_date():
     return get_current_datetime().date()
 
 # Database Configuration
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://att_user:password@localhost:5432/attendance_db')
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql+asyncpg://att_user:password@localhost:5432/attendance_db')
 
-# Parse database URL for psycopg2
-def parse_db_url(url):
-    """Parse DATABASE_URL for psycopg2 connection"""
-    from urllib.parse import unquote
-    url = url.replace('+asyncpg', '').replace('+psycopg2', '')
-    url = url.replace('postgresql://', '')
-    
-    creds, host_db = url.rsplit('@', 1)
-    user, password = creds.split(':', 1)
-    user = unquote(user)
-    password = unquote(password)
-    
-    if ':' in host_db:
-        host, port_db = host_db.split(':')
-        port, dbname = port_db.split('/', 1)
-        port = int(port)
-    else:
-        host, dbname = host_db.split('/', 1)
-        port = 5432
-    
-    return {
-        'host': host,
-        'port': port,
-        'user': user,
-        'password': password,
-        'database': dbname
-    }
+# Create async engine
+async_engine = create_async_engine(DATABASE_URL, echo=False, pool_size=20, max_overflow=40)
 
-db_params = parse_db_url(DATABASE_URL)
+# For sync operations (compatibility)
+sync_engine = create_engine(
+    DATABASE_URL.replace('asyncpg', 'psycopg2'),
+    pool_size=20,
+    max_overflow=40
+)
+
+AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 
 # Flask app configuration
 app = Flask(__name__)
@@ -78,12 +62,29 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
 login_manager = LoginManager(app)
 login_manager.login_view = 'admin_login'
 
-# Database connection helper
+# Database stub for compatibility
+class _DBStub:
+    class Model:
+        pass
+    def Column(self, *args, **kwargs):
+        return None
+    Integer = int
+    def String(self, *args, **kwargs):
+        return str
+    def ForeignKey(self, *args, **kwargs):
+        return None
+    def UniqueConstraint(self, *args, **kwargs):
+        return None
+    def relationship(self, *args, **kwargs):
+        return None
+
+db = _DBStub()
+
 def get_db():
-    """Get synchronous database connection"""
+    """Get synchronous database connection for legacy code."""
     db_conn = getattr(g, '_database', None)
     if db_conn is None:
-        db_conn = g._database = psycopg2.connect(**db_params)
+        db_conn = g._database = sync_engine.connect()
     return db_conn
 
 @app.teardown_appcontext
@@ -95,11 +96,7 @@ def close_db(exc):
 class RowObject:
     """Wrap database rows to allow attribute access."""
     def __init__(self, row):
-        if isinstance(row, dict):
-            self._row = row
-        else:
-            # Handle tuple/list from cursor
-            self._row = row
+        self._row = row
     
     def __getattr__(self, name):
         if name.startswith('_'):

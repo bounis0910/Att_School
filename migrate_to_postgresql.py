@@ -1,52 +1,69 @@
 #!/usr/bin/env python3
 """
 Migration script: SQLite to PostgreSQL
-Run this to migrate data from existing SQLite database to PostgreSQL
+Uses psycopg2 directly (no SQLAlchemy)
+Migrates data from existing SQLite database to PostgreSQL
 """
 import sqlite3
-import asyncio
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import create_async_engine
 import psycopg2
 from psycopg2 import sql
 from dotenv import load_dotenv
+from urllib.parse import unquote
 
 load_dotenv()
 
 SQLITE_DB = os.path.join(os.path.dirname(__file__), 'app.db')
-DATABASE_URL = os.environ.get(
-    'DATABASE_URL',
-    'postgresql+asyncpg://user:password@localhost:5432/att_school'
-)
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
-# Convert async URL to sync URL for initial setup
-SYNC_DATABASE_URL = DATABASE_URL.replace('asyncpg', 'psycopg2')
+def parse_database_url(url):
+    """Parse DATABASE_URL to get connection parameters"""
+    # Remove asyncpg/psycopg2 driver prefixes if present
+    url = url.replace('+asyncpg', '').replace('+psycopg2', '')
+    
+    # Parse: postgresql://user:password@host:port/dbname
+    if not url.startswith('postgresql://'):
+        raise ValueError("Invalid DATABASE_URL format")
+    
+    url = url.replace('postgresql://', '')
+    
+    # Split credentials and host
+    if '@' in url:
+        creds, host_db = url.rsplit('@', 1)  # Use rsplit to handle @ in password
+        user, password = creds.split(':', 1)  # Use split with maxsplit=1 to handle : in password
+        # Decode URL-encoded characters
+        user = unquote(user)
+        password = unquote(password)
+    else:
+        raise ValueError("DATABASE_URL must include credentials")
+    
+    # Split host and database
+    if ':' in host_db:
+        host, port_db = host_db.split(':')
+        port, dbname = port_db.split('/', 1)
+        port = int(port)
+    else:
+        host, dbname = host_db.split('/', 1)
+        port = 5432
+    
+    return {
+        'host': host,
+        'port': port,
+        'user': user,
+        'password': password,
+        'database': dbname
+    }
 
-def create_postgresql_database():
-    """Create PostgreSQL database if it doesn't exist"""
-    # Connect to default postgres database
-    postgres_url = SYNC_DATABASE_URL.rsplit('/', 1)[0] + '/postgres'
+def get_pg_connection():
+    """Create PostgreSQL connection"""
     try:
-        conn = create_engine(postgres_url).connect()
-        conn.execution_options(isolation_level="AUTOCOMMIT")
-        
-        # Check if database exists
-        result = conn.execute(text("SELECT 1 FROM pg_database WHERE datname = 'att_school'"))
-        if result.fetchone():
-            print("Database att_school already exists")
-            conn.close()
-            return
-        
-        # Create database
-        conn.execute(text("CREATE DATABASE att_school"))
-        print("Created PostgreSQL database: att_school")
-        conn.close()
+        params = parse_database_url(DATABASE_URL)
+        conn = psycopg2.connect(**params)
+        return conn
     except Exception as e:
-        print(f"Database creation failed: {e}")
-        return False
-    return True
+        print(f"Failed to connect to PostgreSQL: {e}")
+        return None
 
 def migrate_data():
     """Migrate data from SQLite to PostgreSQL"""
@@ -63,8 +80,12 @@ def migrate_data():
     sqlite_cursor = sqlite_conn.cursor()
     
     # Connect to PostgreSQL
-    pg_engine = create_engine(SYNC_DATABASE_URL)
-    pg_conn = pg_engine.connect()
+    pg_conn = get_pg_connection()
+    if not pg_conn:
+        sqlite_conn.close()
+        return False
+    
+    pg_cursor = pg_conn.cursor()
     
     try:
         # Get all tables
@@ -88,26 +109,30 @@ def migrate_data():
             columns = [description[0] for description in sqlite_cursor.description]
             
             # Insert into PostgreSQL
+            migrated = 0
             for row in rows:
+                # Build INSERT statement with proper parameterization
+                placeholders = ', '.join(['%s'] * len(columns))
+                insert_stmt = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+                
+                # Convert row values to list
                 values = []
                 for val in row:
-                    if isinstance(val, str):
-                        values.append(f"'{val.replace(chr(39), chr(39)*2)}'")  # Escape single quotes
-                    elif val is None:
-                        values.append("NULL")
-                    else:
-                        values.append(str(val))
+                    values.append(val)
                 
-                insert_stmt = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)}) ON CONFLICT DO NOTHING"
                 try:
-                    pg_conn.execute(text(insert_stmt))
+                    pg_cursor.execute(insert_stmt, values)
+                    migrated += 1
+                except psycopg2.errors.ForeignKeyViolation as e:
+                    # Skip rows with foreign key violations (dependent data may not exist yet)
+                    print(f"  - Skipped row due to FK constraint: {e}")
                 except Exception as e:
-                    print(f"  Error inserting row: {e}")
+                    print(f"  - Error inserting row: {e}")
             
             pg_conn.commit()
-            print(f"  ✓ Migrated {len(rows)} rows")
+            print(f"  ✓ Migrated {migrated} rows")
         
-        print("\nMigration completed successfully!")
+        print("\n✓ Migration completed successfully!")
         return True
         
     except Exception as e:
@@ -116,15 +141,20 @@ def migrate_data():
         return False
     
     finally:
+        sqlite_cursor.close()
         sqlite_conn.close()
+        pg_cursor.close()
         pg_conn.close()
 
 def create_indexes():
     """Create indexes on PostgreSQL"""
     print("\nCreating indexes...")
     
-    pg_engine = create_engine(SYNC_DATABASE_URL)
-    pg_conn = pg_engine.connect()
+    pg_conn = get_pg_connection()
+    if not pg_conn:
+        return False
+    
+    pg_cursor = pg_conn.cursor()
     
     indexes = [
         ("idx_attendance_period_class_teacher", 
@@ -139,38 +169,50 @@ def create_indexes():
     
     try:
         for idx_name, idx_stmt in indexes:
-            pg_conn.execute(text(idx_stmt))
+            pg_cursor.execute(idx_stmt)
             print(f"  ✓ Created index: {idx_name}")
         
         pg_conn.commit()
-        print("All indexes created successfully!")
+        print("✓ All indexes created successfully!")
         return True
     except Exception as e:
         print(f"Index creation error: {e}")
         pg_conn.rollback()
         return False
     finally:
+        pg_cursor.close()
         pg_conn.close()
 
 if __name__ == '__main__':
     print("PostgreSQL Migration Tool")
-    print("=" * 50)
+    print("=" * 70)
     
-    # Step 1: Create database
-    if not create_postgresql_database():
-        print("Failed to create PostgreSQL database")
+    if not DATABASE_URL:
+        print("ERROR: DATABASE_URL not set in .env file")
+        exit(1)
+    
+    # Step 1: Check database connection
+    pg_conn = get_pg_connection()
+    if pg_conn:
+        print("✓ Connected to PostgreSQL database")
+        pg_conn.close()
+    else:
+        print("ERROR: Could not connect to PostgreSQL database")
         exit(1)
     
     # Step 2: Migrate data
-    if not migrate_data():
-        print("Failed to migrate data")
-        exit(1)
+    if os.path.exists(SQLITE_DB):
+        if not migrate_data():
+            print("Failed to migrate data")
+            exit(1)
+    else:
+        print(f"Skipping data migration (SQLite DB not found: {SQLITE_DB})")
     
     # Step 3: Create indexes
     if not create_indexes():
         print("Failed to create indexes")
         exit(1)
     
-    print("\n" + "=" * 50)
-    print("Migration completed successfully!")
-    print(f"Database URL: {DATABASE_URL}")
+    print("\n" + "=" * 70)
+    print("✓ Migration completed successfully!")
+    print("=" * 70 + "\n")
