@@ -27,7 +27,7 @@
           {{u.role}}
         </span>
       </td>
-      <td>{{u.email or '-'}}</td>
+      <td>{{u.email or '*'}}</td>
       <td>{{u.national_id or '-'}}</td>
       <td>
         {% if (u.role == 'teacher' or u.role == 'staff') and u.classes %} {% set

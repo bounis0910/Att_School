@@ -23,7 +23,7 @@
         <select name="period_disabled" class="form-select" aria-label="Current period" disabled>
             {% if periods_today and periods_today|length > 0 %}
             {% for p in periods_today %}
-            <option value="{{ p.period }}" {% if current_period==p.period %}selected{% endif %}>الحصة {{ p.period }}{%
+            <option value="{{ p.period_num }}" {% if current_period==p.period_num %}selected{% endif %}>الحصة {{ p.period_num }}{%
                 if p.start_time and p.end_time %} ({{ p.start_time }}-{{ p.end_time }}){% endif %}</option>
             {% endfor %}
             {% else %}
@@ -36,7 +36,7 @@
 <select name="period" class="form-select" aria-label="Select period">
             {% if periods_today and periods_today|length > 0 %}
             {% for p in periods_today %}
-            <option value="{{ p.period }}">Period {{ p.period }}{% if p.start_time and p.end_time %} ({{ p.start_time
+            <option value="{{ p.period_num }}">Period {{ p.period_num }}{% if p.start_time and p.end_time %} ({{ p.start_time
                 }}-{{ p.end_time }}){% endif %}</option>
             {% endfor %}
             {% else %}

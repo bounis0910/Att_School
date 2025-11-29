@@ -4,7 +4,7 @@
 <form method="post">
     <div class="mb-3">
         <label class="form-label">Name</label>
-        <input class="form-control" name="name" value="{{ user.name if user else '' }}" required>
+        <input class="form-control" name="name" value="{{ user.username if user else '' }}" required>
     </div>
     <div class="mb-3">
         <label class="form-label">Role</label>
