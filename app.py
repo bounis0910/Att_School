@@ -529,12 +529,23 @@ def admin_attendance():
     if current_user.role != 'admin':
         return redirect(url_for('index'))
     
+    # Get date from query parameter or use today
+    from datetime import datetime
+    date_param = request.args.get('date')
+    if date_param:
+        try:
+            # Parse the date from the form
+            selected_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+        except:
+            selected_date = get_current_date()
+    else:
+        selected_date = get_current_date()
+    
     try:
         conn = get_db()
         cursor = conn.cursor()
-        today = get_current_date()
         cursor.execute("""
-            SELECT a.*, s.name as student_name, c.name as class_name, u.name as teacher_name
+            SELECT a.*, s.name as student_name, c.name as class_name, u.username as teacher_name
             FROM attendance a
             LEFT JOIN student s ON a.student_id = s.id
             LEFT JOIN school_class c ON a.class_id = c.id
@@ -542,13 +553,14 @@ def admin_attendance():
             WHERE a.date = %s
             ORDER BY c.name, a.period
             LIMIT 500
-        """, (today,))
+        """, (selected_date,))
         attendance_rows = cursor.fetchall()
-        attendance = [RowObject(dict(r)) for r in attendance_rows]
-    except:
-        attendance = []
+        records = [RowObject(dict(r)) for r in attendance_rows]
+    except Exception as e:
+        print(f"Error loading attendance: {e}")
+        records = []
     
-    return render_template('admin_attendance.html', attendance=attendance)
+    return render_template('admin_attendance.html', records=records, today=selected_date)
 
 # ================ User Management Routes ================
 
