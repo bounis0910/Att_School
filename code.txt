@@ -1,3 +1,10 @@
+**********AWS*********************
+cd Att_school
+cd backup
+ssh -i "att_key.pem" ubuntu@ec2-13-229-251-168.ap-southeast-1.compute.amazonaws.com
+https://blog.arlenx.io/posts/deploy-flask-application-on-aws-ec2-and-postgresql
+
+**********************************
 python.exe -m pip install --upgrade pip
 pip freeze > requirements.txt
 pip install -r requirements.txt
@@ -59,3 +66,7 @@ psql --version
 createuser -U postgres -P -s myadmin
 createdb -U adminit attdbsch
 ------------
+
+
+
+
