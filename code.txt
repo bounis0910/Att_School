@@ -6,7 +6,7 @@ https://blog.arlenx.io/posts/deploy-flask-application-on-aws-ec2-and-postgresql
 
 **********************************
 python.exe -m pip install --upgrade pip
-pip freeze > requirements.txt
+pip freeze > requirements1.txt
 pip install -r requirements.txt
 
 pip install flask-login
