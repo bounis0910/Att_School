@@ -2,11 +2,9 @@
 Attendance System - PostgreSQL with Pure psycopg2 (No SQLAlchemy)
 """
 import os
-import re
-import sqlite3
+
 from datetime import date, datetime
 import pytz
-import click
 import pandas as pd
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, g
