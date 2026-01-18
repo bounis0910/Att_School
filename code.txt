@@ -1,3 +1,51 @@
+*******************
+ssh belgacem@174.138.27.235
+123456
+sudo apt update
+sudo apt install python3-pip
+sudo apt install python3-venv
+git clone https://github.com/bounis0910/Att_School.git
+cd Att_school
+python3 -m venv venv
+source venv/bin/activate
+(venv)
+pip install -r requirements.txt
+pip install wheel
+pip install gunicorn
+sudo ufw allow 5000
+python app.py
+vim wsgi.py
+   from app import app
+   if __name__ == "__main__":
+      app.run()
+:wq
+
+gunicorn --bind 0.0.0.0:5000 wsgi:app
+//sudo lsof -i :5000
+//kill <PID>
+exit
+ssh belgacem@174.138.27.235
+cd Att_School
+git pull origin mainSQL
+source venv/bin/activate
+(venv)
+pip install -r requirements.txt
+unicorn --bind 0.0.0.0:5000 wsgi:app
+*************
+/etc/systemd/system/alsis_app.service
+vim alsis_app.service
+:wq
+sudo systemctl start alsis_app
+sudo systemctl enable alsis_app
+sudo systemctl status alsis_app
+***************
+
+systemctl daemon-reload
+
+sudo systemctl restart alsis_app
+
+
+
 **********AWS*********************
 cd Att_school
 git pull origin mainSQL
