@@ -37,7 +37,7 @@ def get_current_date():
     return get_current_datetime().date()
 
 # Database Configuration
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://att_user:password@localhost:5432/attendance_db')
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:Almana@Pg23@localhost:5432/alsisdb')
 
 # Parse database URL for psycopg2
 def parse_db_url(url):
@@ -1136,6 +1136,339 @@ def change_password():
             flash('Error changing password', 'danger')
     
     return render_template('change_password.html')
+
+# ================ Staff Students Routes ================
+
+@app.route('/staff/students', methods=['GET', 'POST'])
+@login_required
+def staff_students():
+    if current_user.role not in ['admin', 'staff']:
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get all classes
+    try:
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    
+    students_by_class = {}
+    selected_class_id = request.args.get('class_id', type=int)
+    
+    # If class is selected, fetch students for that class
+    if selected_class_id:
+        try:
+            cursor.execute("""
+                SELECT s.* FROM student s
+                WHERE s.class_id = %s
+                ORDER BY s.name
+            """, (selected_class_id,))
+            students_rows = cursor.fetchall()
+            students_by_class[selected_class_id] = [RowObject(dict(r)) for r in students_rows]
+        except Exception as e:
+            print(f"Error fetching students: {e}")
+            students_by_class[selected_class_id] = []
+    else:
+        # Get all students grouped by class
+        try:
+            cursor.execute("""
+                SELECT s.*, c.name as class_name FROM student s
+                LEFT JOIN school_class c ON s.class_id = c.id
+                ORDER BY c.name, s.name
+            """)
+            students_rows = cursor.fetchall()
+            for student_row in students_rows:
+                student_obj = RowObject(dict(student_row))
+                class_id = student_obj.class_id
+                if class_id not in students_by_class:
+                    students_by_class[class_id] = []
+                students_by_class[class_id].append(student_obj)
+        except:
+            students_by_class = {}
+    
+    return render_template('staff_students.html', 
+                         classes=classes, 
+                         students_by_class=students_by_class,
+                         selected_class_id=selected_class_id)
+
+@app.route('/staff/students/<int:student_id>/update-phone', methods=['POST'])
+@login_required
+def staff_update_student_phone(student_id):
+    if current_user.role not in ['admin', 'staff']:
+        return {'success': False, 'message': 'Unauthorized'}, 403
+    
+    try:
+        phone1 = request.form.get('phone1', '').strip()
+        phone2 = request.form.get('phone2', '').strip()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Update student phone numbers
+        cursor.execute("""
+            UPDATE student 
+            SET phone1 = %s, phone2 = %s
+            WHERE id = %s
+        """, (phone1 if phone1 else None, phone2 if phone2 else None, student_id))
+        
+        conn.commit()
+        
+        flash(f'Phone numbers updated successfully', 'success')
+        return redirect(request.referrer or url_for('staff_students'))
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error updating phone numbers: {str(e)}', 'danger')
+        return redirect(request.referrer or url_for('staff_students'))
+
+@app.route('/staff/students/export-excel', methods=['GET'])
+@login_required
+def staff_export_students_excel():
+    if current_user.role not in ['admin', 'staff']:
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    
+    selected_class_id = request.args.get('class_id', type=int)
+    
+    if not selected_class_id:
+        flash('Please select a class first', 'warning')
+        return redirect(url_for('staff_students'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get class name
+        cursor.execute("SELECT name FROM school_class WHERE id = %s", (selected_class_id,))
+        class_row = cursor.fetchone()
+        class_name = class_row['name'] if class_row else 'Students'
+        
+        # Get students for the selected class
+        cursor.execute("""
+            SELECT s.id, s.name, s.national_id, s.phone1, s.phone2, c.name as class_name
+            FROM student s
+            LEFT JOIN school_class c ON s.class_id = c.id
+            WHERE s.class_id = %s
+            ORDER BY s.name
+        """, (selected_class_id,))
+        students_rows = cursor.fetchall()
+        
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Students"
+        
+        # Set up header row with styling
+        headers = ['ID', 'Student Name', 'National ID', 'Phone 1', 'Phone 2', 'Class']
+        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        header_font = Font(color='FFFFFF', bold=True)
+        
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Add data rows
+        for row_num, student_row in enumerate(students_rows, 2):
+            ws.cell(row=row_num, column=1, value=student_row['id'])
+            ws.cell(row=row_num, column=2, value=student_row['name'])
+            ws.cell(row=row_num, column=3, value=student_row['national_id'])
+            ws.cell(row=row_num, column=4, value=student_row['phone1'])
+            ws.cell(row=row_num, column=5, value=student_row['phone2'])
+            ws.cell(row=row_num, column=6, value=student_row['class_name'])
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 15
+        ws.column_dimensions['E'].width = 15
+        ws.column_dimensions['F'].width = 20
+        
+        # Save to BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Return the file
+        filename = f"{class_name}_students_{get_current_date()}.xlsx"
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        print(f"Error exporting Excel: {e}")
+        flash(f'Error exporting Excel: {str(e)}', 'danger')
+        return redirect(url_for('staff_students'))
+
+# ================ Public Students Routes (No Login Required) ================
+
+@app.route('/manage-students', methods=['GET', 'POST'])
+def manage_students():
+    """Public page to view and manage students without login"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get all classes
+    try:
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except:
+        classes = []
+    
+    students_by_class = {}
+    selected_class_id = request.args.get('class_id', type=int)
+    
+    # If class is selected, fetch students for that class
+    if selected_class_id:
+        try:
+            cursor.execute("""
+                SELECT s.* FROM student s
+                WHERE s.class_id = %s
+                ORDER BY s.name
+            """, (selected_class_id,))
+            students_rows = cursor.fetchall()
+            students_by_class[selected_class_id] = [RowObject(dict(r)) for r in students_rows]
+        except Exception as e:
+            print(f"Error fetching students: {e}")
+            students_by_class[selected_class_id] = []
+    else:
+        # Get all students grouped by class
+        try:
+            cursor.execute("""
+                SELECT s.*, c.name as class_name FROM student s
+                LEFT JOIN school_class c ON s.class_id = c.id
+                ORDER BY c.name, s.name
+            """)
+            students_rows = cursor.fetchall()
+            for student_row in students_rows:
+                student_obj = RowObject(dict(student_row))
+                class_id = student_obj.class_id
+                if class_id not in students_by_class:
+                    students_by_class[class_id] = []
+                students_by_class[class_id].append(student_obj)
+        except:
+            students_by_class = {}
+    
+    return render_template('manage_students.html', 
+                         classes=classes, 
+                         students_by_class=students_by_class,
+                         selected_class_id=selected_class_id)
+
+@app.route('/manage-students/<int:student_id>/update-phone', methods=['POST'])
+def update_student_phone(student_id):
+    """Update student phone numbers without login"""
+    try:
+        phone1 = request.form.get('phone1', '').strip()
+        phone2 = request.form.get('phone2', '').strip()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Update student phone numbers
+        cursor.execute("""
+            UPDATE student 
+            SET phone = %s, phone = %s
+            WHERE id = %s
+        """, (phone1 if phone1 else None, phone2 if phone2 else None, student_id))
+        
+        conn.commit()
+        
+        flash(f'Phone numbers updated successfully', 'success')
+        return redirect(request.referrer or url_for('manage_students'))
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error updating phone numbers: {str(e)}', 'danger')
+        return redirect(request.referrer or url_for('manage_students'))
+
+@app.route('/manage-students/export-excel', methods=['GET'])
+def export_students_excel():
+    """Export students to Excel without login"""
+    selected_class_id = request.args.get('class_id', type=int)
+    
+    if not selected_class_id:
+        flash('Please select a class first', 'warning')
+        return redirect(url_for('manage_students'))
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get class name
+        cursor.execute("SELECT name FROM school_class WHERE id = %s", (selected_class_id,))
+        class_row = cursor.fetchone()
+        class_name = class_row['name'] if class_row else 'Students'
+        
+        # Get students for the selected class
+        cursor.execute("""
+            SELECT s.id, s.name, s.national_id, s.phone1, s.phone2, c.name as class_name
+            FROM student s
+            LEFT JOIN school_class c ON s.class_id = c.id
+            WHERE s.class_id = %s
+            ORDER BY s.name
+        """, (selected_class_id,))
+        students_rows = cursor.fetchall()
+        
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Students"
+        
+        # Set up header row with styling
+        headers = ['ID', 'Student Name', 'National ID', 'Phone 1', 'Phone 2', 'Class']
+        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        header_font = Font(color='FFFFFF', bold=True)
+        
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Add data rows
+        for row_num, student_row in enumerate(students_rows, 2):
+            ws.cell(row=row_num, column=1, value=student_row['id'])
+            ws.cell(row=row_num, column=2, value=student_row['name'])
+            ws.cell(row=row_num, column=3, value=student_row['national_id'])
+            ws.cell(row=row_num, column=4, value=student_row['phone1'])
+            ws.cell(row=row_num, column=5, value=student_row['phone2'])
+            ws.cell(row=row_num, column=6, value=student_row['class_name'])
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 15
+        ws.column_dimensions['E'].width = 15
+        ws.column_dimensions['F'].width = 20
+        
+        # Save to BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Return the file
+        filename = f"{class_name}_students_{get_current_date()}.xlsx"
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        print(f"Error exporting Excel: {e}")
+        flash(f'Error exporting Excel: {str(e)}', 'danger')
+        return redirect(url_for('manage_students'))
 
 # Error handlers
 @app.errorhandler(404)

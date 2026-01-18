@@ -1,0 +1,189 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h3><i class="bi bi-people"></i> Students by Class</h3>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{{ url_for('staff_dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- Class Selection -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Class</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="classSelect">Choose Class:</label>
+                    <select name="class_id" id="classSelect" class="form-select" onchange="this.form.submit()">
+                        <option value="">-- All Students --</option>
+                        {% for cls in classes %}
+                        <option value="{{ cls.id }}" {% if selected_class_id == cls.id %}selected{% endif %}>
+                            {{ cls.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% if selected_class_id %}
+                <div class="col-md-6">
+                    <label class="form-label">&nbsp;</label>
+                    <a href="{{ url_for('staff_export_students_excel', class_id=selected_class_id) }}" class="btn btn-success w-100">
+                        <i class="bi bi-file-earmark-excel"></i> Export to Excel
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Students Table -->
+    {% if students_by_class %}
+        {% for class_id, students in students_by_class.items() %}
+            {% if students %}
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-collection"></i> Class: 
+                        {% for cls in classes %}
+                            {% if cls.id == class_id %}{{ cls.name }}{% endif %}
+                        {% endfor %}
+                        <span class="badge bg-light text-dark ms-2">{{ students|length }} student(s)</span>
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="5%">#</th>
+                                    <th width="20%">Student Name</th>
+                                    <th width="15%">National ID</th>
+                                    <th width="20%">Phone 1</th>
+                                    <th width="20%">Phone 2</th>
+                                    <th width="20%">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for student in students %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>
+                                        <strong>{{ student.name }}</strong>
+                                    </td>
+                                    <td>
+                                        <code>{{ student.national_id or '—' }}</code>
+                                    </td>
+                                    <td>
+                                        <span class="phone-display" id="phone1_{{ student.id }}">
+                                            {{ student.phone1 or '—' }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="phone-display" id="phone2_{{ student.id }}">
+                                            {{ student.phone2 or '—' }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-primary" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#editPhoneModal"
+                                            onclick="loadStudentPhone({{ student.id }}, '{{ student.name }}', '{{ student.phone1 or '' }}', '{{ student.phone2 or '' }}')">
+                                            <i class="bi bi-pencil-square"></i> Edit
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> 
+            {% if selected_class_id %}
+                No students found for the selected class.
+            {% else %}
+                Select a class to view students.
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+
+<!-- Edit Phone Modal -->
+<div class="modal fade" id="editPhoneModal" tabindex="-1" aria-labelledby="editPhoneLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="editPhoneLabel">
+                    <i class="bi bi-telephone"></i> Update Phone Numbers
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="phoneForm" method="post" action="">
+                <div class="modal-body">
+                    <div class="alert alert-info" id="studentInfo"></div>
+                    
+                    <div class="mb-3">
+                        <label for="phone1Input" class="form-label">Phone 1</label>
+                        <input type="tel" class="form-control" id="phone1Input" name="phone1" placeholder="Enter phone 1">
+                        <small class="form-text text-muted">Primary phone number</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="phone2Input" class="form-label">Phone 2</label>
+                        <input type="tel" class="form-control" id="phone2Input" name="phone2" placeholder="Enter phone 2">
+                        <small class="form-text text-muted">Secondary phone number (optional)</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-circle"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadStudentPhone(studentId, studentName, phone1, phone2) {
+    // Update the form action
+    document.getElementById('phoneForm').action = `/staff/students/${studentId}/update-phone`;
+    
+    // Update the student info display
+    document.getElementById('studentInfo').innerHTML = `<strong>Student:</strong> ${studentName}`;
+    
+    // Fill in the phone fields
+    document.getElementById('phone1Input').value = phone1 || '';
+    document.getElementById('phone2Input').value = phone2 || '';
+    
+    // Focus on the first field
+    document.getElementById('phone1Input').focus();
+}
+</script>
+
+<style>
+.phone-display {
+    font-family: 'Courier New', monospace;
+    padding: 4px 8px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.table-hover tbody tr:hover {
+    background-color: #f5f5f5;
+}
+</style>
+{% endblock %}

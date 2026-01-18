@@ -8,7 +8,7 @@ load_dotenv()
 
 DATABASE_URL = os.environ.get(
     'DATABASE_URL',
-    'postgresql+asyncpg://user:password@localhost:5432/att_school'
+    'postgresql+asyncpg://postgres:Almana%40Pg23@localhost:5432/alsisdb'
 )
 
 # Create async engine
