@@ -32,17 +32,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 unicorn --bind 0.0.0.0:5000 wsgi:app
 *************
+
 /etc/systemd/system/alsis_app.service
-vim alsis_app.service
+sudo vim alsis_app.service
 :wq
 sudo systemctl start alsis_app
 sudo systemctl enable alsis_app
 sudo systemctl status alsis_app
 ***************
-
 systemctl daemon-reload
-
 sudo systemctl restart alsis_app
+*************************
+ps aux | grep ssh
+kill <PID>
+********************
+sudo apt install nginx
+
+
+
 
 
 
