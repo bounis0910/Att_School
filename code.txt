@@ -30,7 +30,8 @@ git pull origin mainSQL
 source venv/bin/activate
 (venv)
 pip install -r requirements.txt
-unicorn --bind 0.0.0.0:5000 wsgi:app
+gunicorn --bind 0.0.0.0:5000 wsgi:app
+deactivate
 *************
 belgacem@
 /etc/systemd/system/alsis_app.service
@@ -40,7 +41,7 @@ sudo systemctl start alsis_app
 sudo systemctl enable alsis_app
 sudo systemctl status alsis_app
 ***************
-systemctl daemon-reload
+sudo systemctl daemon-reload
 sudo systemctl restart alsis_app
 *************************
 ps aux | grep ssh
@@ -73,6 +74,25 @@ sudo nginx -s reload
 sudo less /var/log/nginx/error.log
 sudo chmod 755 /home/belgacem
 
+************PostgreSQL**********
+sudo apt-get install postgresql postgresql-contrib
+sudo -u postgres psql -c "SELECT version();"
+
+sudo su - postgres -c "createuser adminit"
+sudo su - postgres -c "createdb alsisdb"
+
+sudo -u postgres psql
+grant all privileges on database alsisdb to adminit;
+alter user adminit with password 'Almana(PG23)';
+run following to exit from psql
+\q
+
+sudo vi /etc/postgresql/10/main/postgresql.conf
+Change the line "listen_addresses = 'localhost'" to "listen_addresses = '*'"
+
+sudo netstat -tlnp | grep 5432
+
+sudo /etc/init.d/postgresql restart
 
 
 
