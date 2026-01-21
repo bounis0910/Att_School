@@ -32,7 +32,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 unicorn --bind 0.0.0.0:5000 wsgi:app
 *************
-
+belgacem@
 /etc/systemd/system/alsis_app.service
 sudo vim alsis_app.service
 :wq
@@ -46,7 +46,33 @@ sudo systemctl restart alsis_app
 ps aux | grep ssh
 kill <PID>
 ********************
+belgacem@
+
 sudo apt install nginx
+Available applications:
+sudo ufw app list
+sudo ufw allow 'Nginx HTTP'
+sudo ufw status
+systemctl status nginx
+
+sudo vim /etc/nginx/sites-available/myapp.conf
+:wq
+sudo ln -s /etc/nginx/sites-available/myapp.conf /etc/nginx/sites-enabled/
+//sudo ln -sf /etc/nginx/sites-available/myapp.conf /etc/nginx/sites-enabled/
+
+sudo nginx -t
+//if ok
+sudo systemctl restart nginx
+//if need to use domain
+sudo ufw delete allow 5000
+
+sudo ufw allow 'Nginx Full'
+
+*********Troubleshooting**********
+sudo nginx -s reload
+sudo less /var/log/nginx/error.log
+sudo chmod 755 /home/belgacem
+
 
 
 
