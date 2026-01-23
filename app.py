@@ -270,14 +270,13 @@ def staff_dashboard():
         # Get current user's assigned classes
         cursor.execute('SELECT classes FROM "user" WHERE id = %s', (current_user.id,))
         user_row = cursor.fetchone()
-        
         classes = []
-        if user_row and user_row['classes']:
+        if user_row and user_row.get('classes'):
             # Get class IDs assigned to this staff member
             class_ids_str = user_row['classes'].strip()
             if class_ids_str:
                 class_ids = [cid.strip() for cid in class_ids_str.split(',') if cid.strip()]
-                
+
                 # Fetch only assigned classes
                 if class_ids:
                     placeholders = ','.join(['%s'] * len(class_ids))
@@ -287,11 +286,126 @@ def staff_dashboard():
                     )
                     classes_rows = cursor.fetchall()
                     classes = [RowObject(dict(r)) for r in classes_rows]
+        
+        # Build summary structure expected by the template
+        summary = []
+        has_assigned_classes = len(classes) > 0
+
+        # Get current date and periods for today
+        from datetime import datetime
+        today = datetime.now().strftime('%Y-%m-%d')
+        day_of_week = datetime.now().weekday()
+        day_of_week = (day_of_week + 1) % 7
+
+        cursor.execute("SELECT * FROM period WHERE day_of_week = %s ORDER BY period_num", (day_of_week,))
+        periods_rows = cursor.fetchall()
+        periods_today = [RowObject(dict(r)) for r in periods_rows]
+
+        # Determine current period based on time
+        current_time = datetime.now().time()
+        current_period = None
+        for p in periods_today:
+            if p.start_time and p.end_time:
+                if p.start_time <= current_time <= p.end_time:
+                    current_period = p.period_num
+                    break
+        if current_period is None and periods_today:
+            current_period = periods_today[0].period_num
+
+        # For each assigned class, compute counts and per-student details
+        for cls in classes:
+            # fetch students
+            cursor.execute("SELECT * FROM student WHERE class_id = %s ORDER BY name", (cls.id,))
+            students_rows = cursor.fetchall()
+            students = [RowObject(dict(r)) for r in students_rows]
+
+            # fetch attendance for this class and today
+            cursor.execute("SELECT * FROM attendance WHERE class_id = %s AND date = %s", (cls.id, today))
+            attendance_rows = cursor.fetchall()
+
+            # build period_counts
+            period_counts = {}
+            period_nums = [p.period_num for p in periods_today]
+            for pn in period_nums:
+                period_counts[pn] = {'present': 0, 'absent': 0}
+            for ar in attendance_rows:
+                pn = ar['period']
+                if pn not in period_counts:
+                    period_counts[pn] = {'present': 0, 'absent': 0}
+                if ar['status'] == 'present':
+                    period_counts[pn]['present'] += 1
+                else:
+                    period_counts[pn]['absent'] += 1
+
+            # build per-student breakdown
+            student_items = []
+            present_count = 0
+            absent_count = 0
+            not_recorded_count = 0
+
+            # index attendance by student and period
+            att_index = {}
+            for ar in attendance_rows:
+                sid = ar['student_id']
+                pn = ar['period']
+                if sid not in att_index:
+                    att_index[sid] = {}
+                att_index[sid][pn] = ar
+
+            for s in students:
+                item = {
+                    'student': s,
+                    'period_status': {},
+                    'period_remarks': {},
+                    'period_notes': {},
+                }
+                any_present = False
+                any_absent = False
+                for pn in period_nums:
+                    rec = att_index.get(s.id, {}).get(pn)
+                    if rec:
+                        status = rec['status']
+                        item['period_status'][pn] = status
+                        item['period_remarks'][pn] = rec.get('remark')
+                        item['period_notes'][pn] = rec.get('notes')
+                        if status == 'present':
+                            any_present = True
+                        elif status == 'absent':
+                            any_absent = True
+                    else:
+                        item['period_status'][pn] = None
+                        item['period_remarks'][pn] = None
+                        item['period_notes'][pn] = None
+
+                if any_present:
+                    item['overall_status'] = 'present'
+                    present_count += 1
+                elif any_absent:
+                    item['overall_status'] = 'absent'
+                    absent_count += 1
+                else:
+                    item['overall_status'] = 'not_recorded'
+                    not_recorded_count += 1
+
+                student_items.append(item)
+
+            summary.append({
+                'class': cls,
+                'current_period': current_period,
+                'total': len(students),
+                'present': present_count,
+                'absent': absent_count,
+                'not_recorded': not_recorded_count,
+                'period_counts': period_counts,
+                'students': student_items,
+            })
     except Exception as e:
         print(f"Error loading staff dashboard: {e}")
         classes = []
-    
-    return render_template('staff_dashboard.html', classes=classes)
+        summary = []
+        has_assigned_classes = False
+
+    return render_template('staff_dashboard.html', classes=classes, summary=summary, has_assigned_classes=has_assigned_classes, today=today)
 
 @app.route('/teacher/dashboard', methods=['GET', 'POST'])
 @login_required

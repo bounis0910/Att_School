@@ -94,9 +94,45 @@ sudo netstat -tlnp | grep 5432
 
 sudo /etc/init.d/postgresql restart
 
+************************After installation***************
+sudo systemctl restart alsis_app
+sudo systemctl status alsis_app
+sudo journalctl -u alsis_app -f
+
+reload (zero-downtime)
+sudo systemctl reload alsis_app
+
+Manually
+gunicorn --workers 3 --bind unix:/path/to/app.sock wsgi:app
+
+sudo nginx -t
+sudo systemctl reload nginx
+sudo systemctl restart nginx
+sudo systemctl status nginx
+
+sudo journalctl -u alsis_app
+sudo tail -f /var/log/nginx/errorlog
 
 
+************************Migration***************
 
+ssh belgacem@174.138.27.235
+scp /home/ounis/Desktop/Att_School/exports/beB21-01.sql belgacem@174.138.27.235:/~
+
+sudo mv /home/belgacem/B21-01.sql /tmp/
+sudo chmod 644 /tmp/B21-01.sql
+sudo -i -u postgres
+psql -d alsisdb -f /tmp/B21-01.sql
+exit
+
+
+sudo -u postgres psql
+\du	List users/roles
+\l	List databases
+\c dbname	Connect to a database
+\dt	List tables in current database
+\dt *.*	List all tables in all schemas
+\q	Quit psql
 
 
 **********AWS*********************
