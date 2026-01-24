@@ -20,6 +20,7 @@
       <th>Period</th>
       <th>Status</th>
       <th>Teacher</th>
+      <th>Notes</th>
       <th>Actions</th>
     </tr>
   </thead>
@@ -38,6 +39,7 @@
         {% endif %}
       </td>
       <td>{{ r.teacher_name or r.teacher_id }}</td>
+      <td>{{r.remark}} - {{r.notes}}</td>
       <td>
         <form
           method="post"

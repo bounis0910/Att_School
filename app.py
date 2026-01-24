@@ -1584,6 +1584,241 @@ def export_students_excel():
         flash(f'Error exporting Excel: {str(e)}', 'danger')
         return redirect(url_for('manage_students'))
 
+# ================ Attendance Tabs Routes (No Login Required) ================
+
+def determine_current_period(periods_list):
+    """Determine which period is currently active based on time"""
+    from datetime import datetime
+    current_time = datetime.now().time()
+    
+    for period in periods_list:
+        if hasattr(period, 'start_time') and hasattr(period, 'end_time'):
+            start_time = period.start_time
+            end_time = period.end_time
+            
+            if start_time and end_time:
+                # Compare times
+                if start_time <= current_time <= end_time:
+                    return period.period_num
+    
+    # If no period matches, return the first period
+    if periods_list:
+        return periods_list[0].period_num
+    
+    return None
+
+@app.route('/attendance-tabs', methods=['GET'])
+def attendance_tabs():
+    """Public page to record attendance with class tabs"""
+    # Get optional class_id and teacher_id from query parameters (for maintaining selection after save)
+    selected_class_id = request.args.get('class_id')
+    selected_teacher_id = request.args.get('teacher_id')
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get all classes
+    classes = []
+    try:
+        cursor.execute("SELECT * FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [RowObject(dict(r)) for r in classes_rows]
+    except Exception as e:
+        print(f"Error loading classes: {e}")
+    
+    # Get today's day of week and periods
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+    day_of_week = datetime.now().weekday()  # Monday=0, Sunday=6
+    day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0, Monday=1
+    
+    periods_today = []
+    try:
+        # First try to get periods for today
+        cursor.execute("""
+            SELECT * FROM period 
+            WHERE day_of_week = %s 
+            ORDER BY period_num
+            LIMIT 10
+        """, (day_of_week,))
+        periods_rows = cursor.fetchall()
+        
+        # If no periods for today, get periods from Sunday (day 0) as fallback
+        if not periods_rows:
+            cursor.execute("""
+                SELECT * FROM period 
+                WHERE day_of_week = 0
+                ORDER BY period_num
+                LIMIT 10
+            """)
+            periods_rows = cursor.fetchall()
+        
+        periods_today = [RowObject(dict(r)) for r in periods_rows]
+        print(f"Loaded {len(periods_today)} periods for day {day_of_week}")
+    except Exception as e:
+        print(f"Error loading periods: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Get teachers (users with role 'staff' - teachers are stored with staff role)
+    teachers = []
+    try:
+        cursor.execute("""
+            SELECT id, username FROM "user" 
+            WHERE role = 'teacher' 
+            ORDER BY username
+        """)
+        teachers_rows = cursor.fetchall()
+        # Convert rows to RowObject with username as display name
+        for row in teachers_rows:
+            row_dict = dict(row)
+            # Ensure we have both id and username for display
+            row_dict['name'] = row_dict.get('username', '')
+            teachers.append(RowObject(row_dict))
+    except Exception as e:
+        print(f"Error loading teachers: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Build data structure for each class (OPTIMIZED - don't load all attendance records)
+    classes_data = {}
+    for cls in classes:
+        try:
+            # Ensure we have a valid class ID
+            class_id = cls.id if hasattr(cls, 'id') and cls.id else (cls._row.get('id') if hasattr(cls, '_row') else None)
+            
+            if not class_id:
+                print(f"Warning: Class has no ID - {cls}")
+                continue
+            
+            # Get students in this class - convert class_id to appropriate type
+            cursor.execute("""
+                SELECT * FROM student 
+                WHERE class_id = %s 
+                ORDER BY name
+                LIMIT 200
+            """, (str(class_id),))
+            students_rows = cursor.fetchall()
+            students = [RowObject(dict(r)) for r in students_rows]
+            
+            # Load attendance records for today to show saved status
+            attendance_records = {}
+            cursor.execute("""
+                SELECT * FROM attendance 
+                WHERE class_id = %s AND date = %s
+            """, (str(class_id), today))
+            att_rows = cursor.fetchall()
+            for att_row in att_rows:
+                att = dict(att_row)
+                key = f"{att['student_id']}_{att['period']}"
+                attendance_records[key] = att
+            
+            classes_data[class_id] = {
+                'class': cls,
+                'students': students,
+                'attendance': attendance_records
+            }
+            print(f"Loaded class {class_id} with {len(students)} students and {len(attendance_records)} attendance records")
+        except Exception as e:
+            print(f"Error loading data for class {cls._row.get('id') if hasattr(cls, '_row') else 'unknown'}: {e}")
+            import traceback
+            traceback.print_exc()
+            class_id = cls.id if hasattr(cls, 'id') else (cls._row.get('id') if hasattr(cls, '_row') else None)
+            if class_id:
+                classes_data[class_id] = {
+                    'class': cls,
+                    'students': [],
+                    'attendance': {}
+                }
+    
+    return render_template('attendance_tabs.html', 
+                         classes=classes,
+                         classes_data=classes_data,
+                         periods_today=periods_today,
+                         teachers=teachers,
+                         today=today,
+                         current_period=determine_current_period(periods_today),
+                         selected_class_id=selected_class_id,
+                         selected_teacher_id=selected_teacher_id)
+
+@app.route('/attendance-tabs/save', methods=['POST'])
+def save_attendance_tabs():
+    """Save attendance records from the tabs page"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        from datetime import datetime
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Get all form data
+        class_id = request.form.get('class_id')
+        teacher_id = request.form.get('teacher_id')
+        
+        if not class_id or not teacher_id:
+            flash('الصف والمدرس مطلوبان', 'danger')
+            return redirect(url_for('attendance_tabs'))
+        
+        # Collect notes data
+        notes_data = {}
+        for key in request.form.keys():
+            if key.startswith('notes_'):
+                parts = key.split('_')
+                if len(parts) >= 2:
+                    student_id = parts[1]
+                    notes_data[student_id] = request.form.get(key, '').strip()
+        
+        # Process attendance records
+        for key in request.form.keys():
+            if key.startswith('attendance_'):
+                parts = key.split('_')
+                if len(parts) >= 3:
+                    student_id = parts[1]
+                    period = parts[2]
+                    status_value = request.form.get(key)
+                    
+                    # Determine attendance status: 'on' means present, else absent
+                    attendance_status = 'present' if status_value == 'on' else 'absent'
+                    
+                    # Get notes for this student
+                    notes = notes_data.get(student_id, '')
+                    
+                    try:
+                        # Check if attendance record exists
+                        cursor.execute("""
+                            SELECT id FROM attendance 
+                            WHERE student_id = %s AND date = %s AND period = %s AND class_id = %s
+                        """, (student_id, today, period, class_id))
+                        existing = cursor.fetchone()
+                        
+                        if existing:
+                            # Update existing record
+                            cursor.execute("""
+                                UPDATE attendance 
+                                SET status = %s, teacher_id = %s, notes = %s
+                                WHERE id = %s
+                            """, (attendance_status, teacher_id, notes if notes else None, existing['id']))
+                        else:
+                            # Insert new record
+                            cursor.execute("""
+                                INSERT INTO attendance (student_id, date, period, status, teacher_id, class_id, notes)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            """, (student_id, today, period, attendance_status, teacher_id, class_id, notes if notes else None))
+                    except Exception as e:
+                        print(f"Error saving attendance for student {student_id}, period {period}: {e}")
+                        continue
+        
+        conn.commit()
+        flash('تم حفظ الغياب بنجاح', 'success')
+        # Redirect back to attendance page with class and teacher selected
+        return redirect(url_for('attendance_tabs', class_id=class_id, teacher_id=teacher_id))
+    except Exception as e:
+        print(f"Error saving attendance: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'خطأ في حفظ الغياب: {str(e)}', 'danger')
+        return redirect(url_for('attendance_tabs'))
+
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Recording</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #366092;
+            --secondary-color: #5a8bc9;
+            --light-bg: #f8f9fa;
+            --border-color: #dee2e6;
+        }
+        
+        body {
+            background-color: var(--light-bg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            padding: 25px 0;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .header p {
+            margin: 0;
+            opacity: 0.95;
+        }
+        
+        .controls-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        .form-row-inline {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        
+        .form-group-inline {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .form-group-inline label {
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .form-group-inline select {
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            width: 100%;
+        }
+        
+        .btn-save-attendance {
+            background-color: var(--primary-color);
+            border: none;
+            padding: 10px 30px;
+            font-weight: 600;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-save-attendance:hover {
+            background-color: #2a4d7a;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(54, 96, 146, 0.3);
+        }
+        
+        /* Table styling */
+        .attendance-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: white;
+        }
+        
+        .attendance-table thead {
+            background-color: var(--primary-color);
+            color: white;
+            position: sticky;
+            top: 0;
+        }
+        
+        .attendance-table thead th {
+            padding: 12px 10px;
+            font-weight: 600;
+            text-align: center;
+            font-size: 0.9rem;
+            border: 1px solid #5a8bc9;
+        }
+        
+        .attendance-table thead th.student-name-header {
+            text-align: left;
+            position: sticky;
+            left: 0;
+            background-color: var(--primary-color);
+            z-index: 10;
+            min-width: 150px;
+        }
+        
+        .attendance-table tbody td {
+            padding: 12px 10px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+        
+        .attendance-table tbody td.student-name {
+            font-weight: 600;
+            text-align: left;
+            position: sticky;
+            left: 0;
+            background-color: #f8f9fa;
+            z-index: 5;
+            min-width: 150px;
+        }
+        
+        .attendance-table tbody tr:nth-child(even) {
+            background-color: #fafbfc;
+        }
+        
+        .attendance-table tbody tr:hover {
+            background-color: #f0f3ff;
+        }
+        
+        .attendance-table tbody tr:hover td.student-name {
+            background-color: #e8ecf7;
+        }
+        
+        .period-column {
+            min-width: 80px;
+        }
+        
+        .checkbox-cell {
+            padding: 8px 5px;
+        }
+        
+        .checkbox-cell input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--primary-color);
+        }
+        
+        .period-column.current-period {
+            background-color: #fff3cd;
+            font-weight: 700;
+            border: 2px solid var(--primary-color);
+        }
+        
+        .period-column:not(.current-period) {
+            background-color: #f0f0f0;
+            opacity: 0.6;
+        }
+        
+        .remark-select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            font-size: 0.85rem;
+            font-family: inherit;
+            background-color: white;
+        }
+        
+        .remark-select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 4px rgba(54, 96, 146, 0.2);
+        }
+        
+        .notes-input {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            font-size: 0.85rem;
+            font-family: inherit;
+        }
+        
+        .notes-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 4px rgba(54, 96, 146, 0.2);
+        }
+        
+        .period-header-group {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #2c3e50;
+            padding: 4px 2px;
+        }
+        
+        .no-data {
+            padding: 40px 20px;
+            text-align: center;
+            color: #7f8c8d;
+            background: white;
+            border-radius: 4px;
+        }
+        
+        .alert {
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .content-section {
+            display: none;
+        }
+        
+        .content-section.show {
+            display: block;
+        }
+        
+        @media (max-width: 768px) {
+            .form-row-inline {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .form-group-inline {
+                min-width: 100%;
+            }
+            
+            .attendance-table thead th,
+            .attendance-table tbody td {
+                padding: 8px 5px;
+                font-size: 0.85rem;
+            }
+            
+            .attendance-table thead th.student-name-header,
+            .attendance-table tbody td.student-name {
+                min-width: 120px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container-fluid">
+            <h1>📋 الغياب اليومي</h1>
+            <p>التاريخ: <strong>{{ today }}</strong></p>
+        </div>
+    </div>
+    
+    <div class="container-fluid">
+        <!-- Flash messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'success' if category == 'success' else 'warning' if category == 'warning' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <!-- Error Message -->
+        <div id="errorMessage" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none; margin-bottom: 20px;">
+            <strong>⚠️ خطأ:</strong> <span id="errorText"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- Controls Section -->
+        <div class="controls-section">
+            <div class="form-row-inline">
+                <div class="form-group-inline">
+                    <label for="classSelect">الصف:</label>
+                    <select id="classSelect" onchange="loadStudents()">
+                        <option value="">-- اختر الصف --</option>
+                        {% for cls in classes %}
+                            {% set class_id_value = cls.id or cls._row.get('id') %}
+                            <option value="{{ class_id_value }}" {% if selected_class_id and selected_class_id|int == class_id_value|int %}selected{% endif %}>{{ cls.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group-inline">
+                    <label for="teacherSelect">المدرس:</label>
+                    <select id="teacherSelect">
+                        <option value="">-- اختر المدرس --</option>
+                        {% for teacher in teachers %}
+                            <option value="{{ teacher.id }}" {% if selected_teacher_id and selected_teacher_id|int == teacher.id|int %}selected{% endif %}>{{ teacher.name or teacher.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Attendance Content Section -->
+        <div class="content-section" id="contentSection">
+            <form id="attendanceForm" method="POST" action="{{ url_for('save_attendance_tabs') }}">
+                <input type="hidden" id="hiddenClassId" name="class_id">
+                <input type="hidden" id="hiddenTeacherId" name="teacher_id">
+                
+                <div class="table-wrapper">
+                    <table class="attendance-table" id="attendanceTable">
+                        <thead>
+                            <tr>
+                                <th class="student-name-header">اسم الطالب</th>
+                                {% for period in periods_today %}
+                                    {% set is_current = period.period_num == current_period %}
+                                    <th class="period-column {% if is_current %}current-period{% endif %}">
+                                        <div class="period-header-group">
+                                            الحصة {{ period.period_num }}
+                                            {% if is_current %}
+                                                <br><span style="color: var(--primary-color); font-size: 0.7rem;">✓ الحالية</span>
+                                            {% endif %}
+                                            {% if period.start_time and period.end_time %}
+                                                <br>
+                                                <small style="font-size: 0.75rem; font-weight: normal;">
+                                                    {{ period.start_time.strftime('%H:%M') if period.start_time else '' }} - 
+                                                    {{ period.end_time.strftime('%H:%M') if period.end_time else '' }}
+                                                </small>
+                                            {% endif %}
+                                        </div>
+                                    </th>
+                                {% endfor %}
+                                <th style="min-width: 110px;">ملاحظات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px;">
+                    <button type="submit" class="btn btn-save-attendance text-white">
+                        💾 حفظ الغياب
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- No Selection Message -->
+        <div id="noSelectionMessage" class="no-data">
+            <p>اختر صفًا لعرض الطلاب</p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Store all students data
+        const allClassesData = {
+            {% for class_id, class_data in classes_data.items() %}
+                {{ class_id }}: {
+                    students: [
+                        {% for student in class_data.students %}
+                            {
+                                id: {{ student.id }},
+                                name: "{{ student.name }}",
+                                class_id: {{ student.class_id }}
+                            }{{ "," if not loop.last else "" }}
+                        {% endfor %}
+                    ],
+                    attendance: {
+                        {% for att_key, att_record in class_data.attendance.items() %}
+                            "{{ att_key }}": {
+                                id: {{ att_record.get('id') }},
+                                student_id: {{ att_record.get('student_id') }},
+                                status: "{{ att_record.get('status') }}",
+                                notes: "{{ att_record.get('notes') or '' }}"
+                            }{{ "," if not loop.last else "" }}
+                        {% endfor %}
+                    },
+                    periods: [
+                        {% for period in periods_today %}
+                            {
+                                period_num: {{ period.period_num }},
+                                start_time: "{{ period.start_time.strftime('%H:%M') if period.start_time else '' }}",
+                                end_time: "{{ period.end_time.strftime('%H:%M') if period.end_time else '' }}"
+                            }{{ "," if not loop.last else "" }}
+                        {% endfor %}
+                    ]
+                }{{ "," if not loop.last else "" }}
+            {% endfor %}
+        };
+        
+        const currentPeriod = {{ current_period }};
+        
+        function loadStudents() {
+            const classId = document.getElementById('classSelect').value;
+            const teacherId = document.getElementById('teacherSelect').value;
+            const contentSection = document.getElementById('contentSection');
+            const noSelectionMessage = document.getElementById('noSelectionMessage');
+            
+            if (!classId) {
+                contentSection.classList.remove('show');
+                noSelectionMessage.style.display = 'block';
+                return;
+            }
+            
+            const classData = allClassesData[classId];
+            if (!classData || classData.students.length === 0) {
+                noSelectionMessage.style.display = 'block';
+                contentSection.classList.remove('show');
+                return;
+            }
+            
+            // Update hidden inputs
+            document.getElementById('hiddenClassId').value = classId;
+            document.getElementById('hiddenTeacherId').value = teacherId;
+            
+            // Populate table
+            const tbody = document.getElementById('studentTableBody');
+            tbody.innerHTML = '';
+            
+            classData.students.forEach(student => {
+                const row = document.createElement('tr');
+                
+                // Student name cell
+                const nameCell = document.createElement('td');
+                nameCell.className = 'student-name';
+                nameCell.textContent = student.name;
+                row.appendChild(nameCell);
+                
+                // Period cells
+                classData.periods.forEach(period => {
+                    const attKey = `${student.id}_${period.period_num}`;
+                    const attRecord = classData.attendance[attKey];
+                    const isCurrent = period.period_num === currentPeriod;
+                    
+                    const cell = document.createElement('td');
+                    cell.className = `checkbox-cell period-column ${isCurrent ? 'current-period' : ''}`;
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.name = `attendance_${student.id}_${period.period_num}`;
+                    checkbox.dataset.student = student.id;
+                    checkbox.dataset.period = period.period_num;
+                    checkbox.className = 'attendance-checkbox';
+                    
+                    // Only enable checkbox for current period
+                    if (!isCurrent) {
+                        checkbox.disabled = true;
+                        checkbox.style.cursor = 'not-allowed';
+                        checkbox.style.opacity = '0.5';
+                    }
+                    
+                    // Check if present (default to checked/present)
+                    if (attRecord && attRecord.status === 'absent') {
+                        checkbox.checked = false;
+                    } else {
+                        checkbox.checked = true;
+                    }
+                    
+                    cell.appendChild(checkbox);
+                    row.appendChild(cell);
+                });
+                
+                // Notes cell
+                const notesCell = document.createElement('td');
+                notesCell.style.minWidth = '110px';
+                const attKey = `${student.id}_${currentPeriod}`;
+                const attRecord = classData.attendance[attKey];
+                
+                const notesInput = document.createElement('input');
+                notesInput.type = 'text';
+                notesInput.className = 'notes-input';
+                notesInput.name = `notes_${student.id}`;
+                notesInput.placeholder = 'ملاحظات';
+                notesInput.value = attRecord && attRecord.notes ? attRecord.notes : '';
+                
+                notesCell.appendChild(notesInput);
+                row.appendChild(notesCell);
+                
+                tbody.appendChild(row);
+            });
+            
+            contentSection.classList.add('show');
+            noSelectionMessage.style.display = 'none';
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if class is already selected
+            const classId = document.getElementById('classSelect').value;
+            if (classId) {
+                loadStudents();
+            }
+        });
+        
+        // Handle form submission
+        document.getElementById('attendanceForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const classId = document.getElementById('hiddenClassId').value;
+            const teacherId = document.getElementById('hiddenTeacherId').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+            
+            // Validation: Check if both class and teacher are selected
+            if (!classId || !teacherId) {
+                errorText.textContent = 'يرجى اختيار الصف والمدرس';
+                errorDiv.style.display = 'block';
+                errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                return;
+            }
+            
+            // Hide error if validation passed
+            errorDiv.style.display = 'none';
+            
+            // Collect attendance data from form - ONLY for current period
+            const formData = new FormData();
+            formData.append('class_id', classId);
+            formData.append('teacher_id', teacherId);
+            
+            // Collect only current period checkboxes (enabled ones)
+            document.querySelectorAll('.attendance-checkbox:not(:disabled)').forEach(checkbox => {
+                const studentId = checkbox.dataset.student;
+                const period = checkbox.dataset.period;
+                const name = `attendance_${studentId}_${period}`;
+                
+                // If checked: 'on', if unchecked: ''
+                formData.append(name, checkbox.checked ? 'on' : '');
+            });
+            
+            // Collect all notes
+            document.querySelectorAll('.notes-input').forEach(input => {
+                const name = input.name;
+                formData.append(name, input.value);
+            });
+            
+            // Submit via traditional form
+            const tempForm = document.createElement('form');
+            tempForm.method = 'POST';
+            tempForm.action = this.action;
+            
+            for (const [key, value] of formData.entries()) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = value;
+                tempForm.appendChild(input);
+            }
+            
+            document.body.appendChild(tempForm);
+            tempForm.submit();
+            document.body.removeChild(tempForm);
+        });
+    </script>
+</body>
+</html>
