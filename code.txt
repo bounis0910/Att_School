@@ -113,6 +113,14 @@ sudo systemctl status nginx
 sudo journalctl -u alsis_app
 sudo tail -f /var/log/nginx/errorlog
 
+**************************//////////////////////************
+belgacem@ubuntu-s-1vcpu-512mb-10gb-sgp1-01:~/Att_School$ gunicorn --bind 0.0.0.0:5000 wsgi:app
+Command 'gunicorn' not found, but can be installed with:
+sudo apt install gunicorn
+belgacem@ubuntu-s-1vcpu-512mb-10gb-sgp1-01:~/Att_School$ source venv/bin/activate
+(venv) belgacem@ubuntu-s-1vcpu-512mb-10gb-sgp1-01:~/Att_School$ gunicorn --bind 0.0.0.0:5000 wsgi:app
+////////////
+
 
 ************************Migration***************
 
