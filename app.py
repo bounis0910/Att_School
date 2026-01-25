@@ -1592,20 +1592,339 @@ def determine_current_period(periods_list):
     current_time = datetime.now().time()
     
     for period in periods_list:
-        if hasattr(period, 'start_time') and hasattr(period, 'end_time'):
-            start_time = period.start_time
-            end_time = period.end_time
+        # Handle both RowObject and dict formats
+        start_time_val = period.get('start_time') if isinstance(period, dict) else getattr(period, 'start_time', None)
+        end_time_val = period.get('end_time') if isinstance(period, dict) else getattr(period, 'end_time', None)
+        period_num = period.get('period_num') if isinstance(period, dict) else getattr(period, 'period_num', None)
+        
+        if start_time_val and end_time_val:
+            # Convert string times back to time objects if needed
+            if isinstance(start_time_val, str):
+                start_time_val = datetime.strptime(start_time_val, '%H:%M:%S').time()
+            if isinstance(end_time_val, str):
+                end_time_val = datetime.strptime(end_time_val, '%H:%M:%S').time()
             
-            if start_time and end_time:
-                # Compare times
-                if start_time <= current_time <= end_time:
-                    return period.period_num
+            # Compare times
+            if start_time_val <= current_time <= end_time_val:
+                return period_num
     
     # If no period matches, return the first period
     if periods_list:
-        return periods_list[0].period_num
+        first_period = periods_list[0]
+        return first_period.get('period_num') if isinstance(first_period, dict) else getattr(first_period, 'period_num', None)
     
     return None
+
+# ================ Public Attendance Routes (No Login Required) ================
+
+@app.route('/attendance', methods=['GET', 'POST'])
+def public_attendance():
+    """Public page to record attendance without login - select class and teacher"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get all classes and teachers
+    try:
+        cursor.execute("SELECT id, name FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [dict(r) for r in classes_rows]
+        
+        cursor.execute("SELECT id, username FROM \"user\" WHERE role = 'teacher' ORDER BY username")
+        teachers_rows = cursor.fetchall()
+        teachers = [dict(r) for r in teachers_rows]
+    except Exception as e:
+        print(f"Error loading classes/teachers: {e}")
+        classes = []
+        teachers = []
+    
+    # Get selected class and teacher from query parameters or form
+    selected_class_id = request.args.get('class_id') or request.form.get('class_id')
+    selected_teacher_id = request.args.get('teacher_id') or request.form.get('teacher_id')
+    
+    students = []
+    periods_today = []
+    current_period = None
+    attendance_records = {}
+    today = get_current_date().strftime('%Y-%m-%d')
+    present_count = 0
+    absent_count = 0
+    
+    if selected_class_id and selected_teacher_id:
+        try:
+            # Fetch students for the selected class
+            cursor.execute("""
+                SELECT id, name FROM student 
+                WHERE class_id = %s 
+                ORDER BY name
+            """, (selected_class_id,))
+            students_rows = cursor.fetchall()
+            students = [dict(r) for r in students_rows]
+            
+            # Get current date and day of week
+            day_of_week = get_current_datetime().weekday()  # Monday=0, Sunday=6
+            day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0, Monday=1
+            
+            # Fetch periods for today
+            cursor.execute("""
+                SELECT id, day_of_week, period_num, start_time, end_time 
+                FROM period 
+                WHERE day_of_week = %s 
+                ORDER BY period_num
+            """, (day_of_week,))
+            periods_rows = cursor.fetchall()
+            # Convert time objects to strings for JSON serialization
+            periods_today = []
+            for r in periods_rows:
+                period_dict = dict(r)
+                period_dict['start_time'] = str(period_dict['start_time']) if period_dict.get('start_time') else None
+                period_dict['end_time'] = str(period_dict['end_time']) if period_dict.get('end_time') else None
+                periods_today.append(period_dict)
+            
+            # Determine current period based on time
+            current_period = determine_current_period(periods_today)
+            
+            # Fetch attendance records for today
+            cursor.execute("""
+                SELECT student_id, period, status, remark, notes 
+                FROM attendance 
+                WHERE class_id = %s AND date = %s
+                ORDER BY student_id, period
+            """, (selected_class_id, today))
+            att_rows = cursor.fetchall()
+            
+            # Build attendance records dictionary
+            for row in att_rows:
+                key = f"{row['student_id']}_{row['period']}"
+                attendance_records[key] = {
+                    'status': row['status'],
+                    'remark': row['remark'],
+                    'notes': row['notes']
+                }
+            
+            # Count present and absent
+            for student in students:
+                student_present = False
+                for period in periods_today:
+                    key = f"{student['id']}_{period['period_num']}"
+                    if key in attendance_records:
+                        if attendance_records[key]['status'] == 'present':
+                            student_present = True
+                            break
+                
+                if student_present:
+                    present_count += 1
+                else:
+                    absent_count += 1
+        
+        except Exception as e:
+            print(f"Error loading attendance data: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    return render_template('public_attendance.html',
+                         classes=classes,
+                         teachers=teachers,
+                         selected_class_id=selected_class_id,
+                         selected_teacher_id=selected_teacher_id,
+                         students=students,
+                         periods_today=periods_today,
+                         current_period=current_period,
+                         attendance_records=attendance_records,
+                         today=today,
+                         present_count=present_count,
+                         absent_count=absent_count)
+
+@app.route('/attendance/save', methods=['POST'])
+def save_public_attendance():
+    """Save attendance records from public attendance page"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        today = get_current_date().strftime('%Y-%m-%d')
+        
+        # Get form data
+        class_id = request.form.get('class_id')
+        teacher_id = request.form.get('teacher_id')
+        
+        if not class_id or not teacher_id:
+            return {'success': False, 'message': 'Class and teacher required'}, 400
+        
+        # Collect all form data
+        for key in request.form.keys():
+            if key.startswith('attendance_'):
+                parts = key.split('_')
+                if len(parts) >= 3:
+                    student_id = parts[1]
+                    period = parts[2]
+                    status_value = request.form.get(key)
+                    remark = request.form.get(f'remark_{student_id}_{period}', '').strip()
+                    notes = request.form.get(f'notes_{student_id}_{period}', '').strip()
+                    
+                    # Determine status: 'on' means present, else absent
+                    attendance_status = 'present' if status_value == 'on' else 'absent'
+                    
+                    # Clear remark if status is present
+                    if attendance_status == 'present':
+                        remark = ''
+                    
+                    try:
+                        # Check if record exists
+                        cursor.execute("""
+                            SELECT id FROM attendance 
+                            WHERE student_id = %s AND date = %s AND period = %s AND class_id = %s
+                        """, (student_id, today, period, class_id))
+                        existing = cursor.fetchone()
+                        
+                        if existing:
+                            # Update existing
+                            cursor.execute("""
+                                UPDATE attendance 
+                                SET status = %s, teacher_id = %s, remark = %s, notes = %s
+                                WHERE id = %s
+                            """, (attendance_status, teacher_id, remark if remark else None, 
+                                  notes if notes else None, existing['id']))
+                        else:
+                            # Insert new
+                            cursor.execute("""
+                                INSERT INTO attendance (student_id, date, period, status, teacher_id, class_id, remark, notes)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            """, (student_id, today, period, attendance_status, teacher_id, class_id,
+                                  remark if remark else None, notes if notes else None))
+                    except Exception as e:
+                        print(f"Error saving attendance for student {student_id}, period {period}: {e}")
+                        continue
+        
+        conn.commit()
+        flash('Attendance saved successfully', 'success')
+        return redirect(url_for('public_attendance', class_id=class_id, teacher_id=teacher_id))
+    
+    except Exception as e:
+        print(f"Error saving attendance: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error saving attendance: {str(e)}', 'danger')
+        return redirect(url_for('public_attendance'))
+
+@app.route('/attendance/save-remark', methods=['POST'])
+def save_remark():
+    """Save remark for absent student (AJAX endpoint)"""
+    try:
+        student_id = request.json.get('student_id')
+        period = request.json.get('period')
+        remark = request.json.get('remark', '').strip()
+        class_id = request.json.get('class_id')
+        teacher_id = request.json.get('teacher_id')
+        
+        if not all([student_id, period, class_id, teacher_id]):
+            return {'success': False, 'message': 'Missing required fields'}, 400
+        
+        # Validate remark value
+        if remark and remark not in ['excused', 'still absent']:
+            return {'success': False, 'message': 'Invalid remark value'}, 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        today = get_current_date().strftime('%Y-%m-%d')
+        
+        # Update remark in attendance record
+        cursor.execute("""
+            UPDATE attendance 
+            SET remark = %s
+            WHERE student_id = %s AND date = %s AND period = %s AND class_id = %s
+        """, (remark if remark else None, student_id, today, period, class_id))
+        
+        conn.commit()
+        
+        return {'success': True, 'message': 'Remark saved successfully'}, 200
+    
+    except Exception as e:
+        print(f"Error saving remark: {e}")
+        return {'success': False, 'message': str(e)}, 500
+
+@app.route('/attendance/save-notes', methods=['POST'])
+def save_notes():
+    """Save notes for student attendance (AJAX endpoint)"""
+    try:
+        student_id = request.json.get('student_id')
+        period = request.json.get('period')
+        notes = request.json.get('notes', '').strip()
+        class_id = request.json.get('class_id')
+        teacher_id = request.json.get('teacher_id')
+        
+        if not all([student_id, period, class_id, teacher_id]):
+            return {'success': False, 'message': 'Missing required fields'}, 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        today = get_current_date().strftime('%Y-%m-%d')
+        
+        # Update notes in attendance record
+        cursor.execute("""
+            UPDATE attendance 
+            SET notes = %s
+            WHERE student_id = %s AND date = %s AND period = %s AND class_id = %s
+        """, (notes if notes else None, student_id, today, period, class_id))
+        
+        conn.commit()
+        
+        return {'success': True, 'message': 'Notes saved successfully'}, 200
+    
+    except Exception as e:
+        print(f"Error saving notes: {e}")
+        return {'success': False, 'message': str(e)}, 500
+
+@app.route('/attendance/save-attendance-status', methods=['POST'])
+def save_attendance_status():
+    """Save individual attendance status (AJAX endpoint)"""
+    try:
+        student_id = request.json.get('student_id')
+        period = request.json.get('period')
+        status = request.json.get('status')
+        class_id = request.json.get('class_id')
+        teacher_id = request.json.get('teacher_id')
+        
+        if not all([student_id, period, status, class_id, teacher_id]):
+            return {'success': False, 'message': 'Missing required fields'}, 400
+        
+        if status not in ['present', 'absent']:
+            return {'success': False, 'message': 'Invalid status value'}, 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        today = get_current_date().strftime('%Y-%m-%d')
+        
+        # Check if record exists
+        cursor.execute("""
+            SELECT id FROM attendance 
+            WHERE student_id = %s AND date = %s AND period = %s AND class_id = %s
+        """, (student_id, today, period, class_id))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing record
+            cursor.execute("""
+                UPDATE attendance 
+                SET status = %s, teacher_id = %s
+                WHERE id = %s
+            """, (status, teacher_id, existing['id']))
+        else:
+            # Insert new record
+            cursor.execute("""
+                INSERT INTO attendance (student_id, date, period, status, teacher_id, class_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (student_id, today, period, status, teacher_id, class_id))
+        
+        conn.commit()
+        
+        return {'success': True, 'message': 'Attendance saved successfully'}, 200
+    
+    except Exception as e:
+        print(f"Error saving attendance: {e}")
+        return {'success': False, 'message': str(e)}, 500
 
 @app.route('/attendance-tabs', methods=['GET'])
 def attendance_tabs():

@@ -1,3 +1,10 @@
+pkill -f "python app.py"
+lsof -i :5000 | grep -v COMMAND | awk '{print $2}' | xargs kill -9
+more forcefully
+fuser -k 5000/tcp
+or
+pkill -9 -f "python.*app"; sleep 2; ps aux | grep python | grep -v grep || echo "All Python processes killed"
+
 *******************
 ssh belgacem@174.138.27.235
 123456
