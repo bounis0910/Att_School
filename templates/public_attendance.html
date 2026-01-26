@@ -102,7 +102,7 @@
         
         .attendance-section {
             background: white;
-            padding: 25px;
+            padding: 15px;
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             margin-bottom: 25px;
@@ -167,7 +167,7 @@
         .attendance-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 10px;
         }
         
         .attendance-table thead {
@@ -176,9 +176,9 @@
         }
         
         .attendance-table th {
-            padding: 15px;
+            padding: 2px;
             text-align: center;
-            font-weight: 600;
+            font-weight: 200;
             border: 1px solid var(--border-color);
         }
         
@@ -191,7 +191,7 @@
         }
         
         .attendance-table td {
-            padding: 12px 15px;
+            padding: 12px 5px;
             border: 1px solid var(--border-color);
             text-align: center;
         }
@@ -324,11 +324,11 @@
 <body>
     <!-- Header -->
     <div class="header">
-        <h1>نظام تسجيل الحضور والغياب</h1>
-        <p>Attendance Recording System</p>
+        <h1>نظام تسجيل الغياب اليومي</h1>
+        <p>التاريخ: <strong>{{ today }}</strong></p>
     </div>
     
-    <div class="container-fluid" style="max-width: 1400px;">
+    <div class="container-fluid" style="max-width: 100%;">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -576,6 +576,10 @@
             const periodsList = {{ periods_today|tojson if periods_today else '[]' }};
             const lastPeriodNum = periodsList.length > 0 ? periodsList[periodsList.length - 1].period_num : 0;
             
+            // Get the remark select and overall status elements
+            const remarkSelect = document.querySelector(`select[name="remark_student_${studentId}"]`);
+            const overallStatusCell = remarkSelect.closest('tr').querySelector('td[style*="font-weight: bold"]');
+            
             fetch('{{ url_for("save_remark") }}', {
                 method: 'POST',
                 headers: {
@@ -603,8 +607,17 @@
                             document.getElementById('presentCount').textContent = presentCount;
                             document.getElementById('absentCount').textContent = absentCount;
                         }
+                        
+                        // Disable the select and update overall status to present
+                        remarkSelect.disabled = true;
+                        overallStatusCell.innerHTML = '<span style="color: #28a745; font-size: 14px;">✓ حاضر</span>';
                     } else if (remarkValue === 'still absent') {
-                        // Still absent: no change needed as it's already counted as absent
+                        // Still absent: re-enable select and show absent status
+                        remarkSelect.disabled = false;
+                        overallStatusCell.innerHTML = '<span style="color: #dc3545; font-size: 14px;">✗ غائب</span>';
+                    } else if (remarkValue === '') {
+                        // Clear selection: re-enable select
+                        remarkSelect.disabled = false;
                     }
                 }
             })

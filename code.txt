@@ -4,10 +4,19 @@ lsof -i :5000 | grep -v COMMAND | awk '{print $2}' | xargs kill -9
 fuser -k 5000/tcp
 or
 pkill -9 -f "python.*app"; sleep 2; ps aux | grep python | grep -v grep || echo "All Python processes killed"
+root@
+   adduser belgacem
+   usermod -aG sudo belgacem
+   ufw allow OpenSSH
+   ufw app list
+   ufw enable
+   ufw status
+   exit
 
 *******************
 ssh belgacem@174.138.27.235
 123456
+belgacem@
 sudo apt update
 sudo apt install python3-pip
 sudo apt install python3-venv
@@ -15,25 +24,27 @@ pwd
 /home/belgacem
 git clone https://github.com/bounis0910/Att_School.git
 cd Att_school
-python3 -m venv venv
+   python3 -m venv venv
 //venv must be in Att_School
-source venv/bin/activate
-(venv)
-   pip install -r requirements.txt
-   pip install wheel
-   pip install gunicorn
-sudo ufw allow 5000
-python app.py
-vim wsgi.py
-   from app import app
-   if __name__ == "__main__":
-      app.run()
+   source venv/bin/activate
+   (venv)/Att_school$
+
+      pip install -r requirements.txt
+      pip install wheel
+      pip install gunicorn
+      sudo ufw allow 5000
+      python app.py
+      vim wsgi.py
+         from app import app
+         if __name__ == "__main__":
+            app.run()
 :wq
 
-gunicorn --bind 0.0.0.0:5000 app:app
+gunicorn --bind 0.0.0.0:5000 wsgi:app
 //sudo lsof -i :5000
 //kill <PID>
 exit
+
 ssh belgacem@174.138.27.235
 cd Att_School
 git pull origin mainSQL
@@ -46,10 +57,27 @@ deactivate
 belgacem@
 /etc/systemd/system/alsis_app.service
 sudo vim alsis_app.service
+         [Unit]
+         Description=ALSIS SCHOOL ALM
+         After=network.target
+
+         [Service]
+         User=belgacem
+         Group=www-data
+         WorkingDirectory=/home/belgacem/Att_School
+         Environment="PATH=/home/belgacem/Att_School/venv/bin"
+         ExecStart=/home/belgacem/Att_School/venv/bin/gunicorn --workers 3 --bind unix:alsisapp.sock -m 007 wsgi:app
+
+         [Install]
+         WantedBy=multi-user.target
+
 :wq
+belgacem@~$
+cd ~
 sudo systemctl start alsis_app
 sudo systemctl enable alsis_app
 sudo systemctl status alsis_app
+sudo systemctl enable alsis_app
 ***************
 sudo systemctl daemon-reload
 sudo systemctl restart alsis_app
@@ -57,19 +85,29 @@ sudo systemctl restart alsis_app
 ps aux | grep ssh
 kill <PID>
 ********************
-belgacem@
+belgacem@~$
+   sudo apt install nginx
+   Available applications:
+   sudo ufw app list
+   sudo ufw allow 'Nginx HTTP'
+   sudo ufw status
+   systemctl status nginx
 
-sudo apt install nginx
-Available applications:
-sudo ufw app list
-sudo ufw allow 'Nginx HTTP'
-sudo ufw status
-systemctl status nginx
+   sudo vim /etc/nginx/sites-available/myapp.conf
+            server {
+               listen 80;
+               server_name ounis.net www.ounis.net;
 
-sudo vim /etc/nginx/sites-available/myapp.conf
-:wq
-sudo ln -s /etc/nginx/sites-available/myapp.conf /etc/nginx/sites-enabled/
-//sudo ln -sf /etc/nginx/sites-available/myapp.conf /etc/nginx/sites-enabled/
+               location / {
+                        include proxy_params;
+                        proxy_pass http://unix:/home/belgacem/alsis_app/alsisapp.sock;
+               }
+         }
+
+   :wq
+   sudo ln -s /etc/nginx/sites-available/myapp.conf /etc/nginx/sites-enabled/
+   //force update
+   sudo ln -sf /etc/nginx/sites-available/myapp.conf /etc/nginx/sites-enabled/
 
 sudo nginx -t
 //if ok
