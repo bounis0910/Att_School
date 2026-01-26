@@ -9,8 +9,8 @@ from psycopg2.extras import RealDictCursor
 db_params = {
     'host': 'localhost',
     'port': 5432,
-    'user': 'adminit',
-    'password': 'Bel@1981',
+    'user': 'postgres',
+    'password': 'Almana@Pg23',
     'database': 'attdbsch'
 }
 
