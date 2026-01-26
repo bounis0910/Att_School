@@ -1,6 +1,6 @@
 pkill -f "python app.py"
 lsof -i :5000 | grep -v COMMAND | awk '{print $2}' | xargs kill -9
-more forcefully
+//more forcefully
 fuser -k 5000/tcp
 or
 pkill -9 -f "python.*app"; sleep 2; ps aux | grep python | grep -v grep || echo "All Python processes killed"
@@ -11,14 +11,17 @@ ssh belgacem@174.138.27.235
 sudo apt update
 sudo apt install python3-pip
 sudo apt install python3-venv
+pwd 
+/home/belgacem
 git clone https://github.com/bounis0910/Att_School.git
 cd Att_school
 python3 -m venv venv
+//venv must be in Att_School
 source venv/bin/activate
 (venv)
-pip install -r requirements.txt
-pip install wheel
-pip install gunicorn
+   pip install -r requirements.txt
+   pip install wheel
+   pip install gunicorn
 sudo ufw allow 5000
 python app.py
 vim wsgi.py
@@ -27,7 +30,7 @@ vim wsgi.py
       app.run()
 :wq
 
-gunicorn --bind 0.0.0.0:5000 wsgi:app
+gunicorn --bind 0.0.0.0:5000 app:app
 //sudo lsof -i :5000
 //kill <PID>
 exit
