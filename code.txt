@@ -44,7 +44,7 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 //sudo lsof -i :5000
 //kill <PID>
 exit
-
+***************************************
 ssh belgacem@174.138.27.235
 cd Att_School
 git pull origin mainSQL
@@ -54,6 +54,16 @@ pip install -r requirements.txt
 gunicorn --bind 0.0.0.0:5000 wsgi:app
 deactivate
 *************
+ssh username@server_ip
+cd /Att_School
+git pull origin mainSQL
+source venv/bin/activate   # if you use a virtualenv
+pip install -r requirements.txt
+sudo systemctl restart alsis_app
+//sudo systemctl restart gunicorn
+journalctl -u alsis_app -n 50
+***************************************
+
 belgacem@
 /etc/systemd/system/alsis_app.service
 sudo vim alsis_app.service
