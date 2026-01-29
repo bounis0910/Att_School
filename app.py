@@ -1932,6 +1932,415 @@ def save_attendance_status():
         print(f"Error saving attendance: {e}")
         return {'success': False, 'message': str(e)}, 500
 
+@app.route('/public-daily-attendance', methods=['GET'])
+def public_daily_attendance():
+    """Public page to view overall daily attendance per student"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get all classes
+    try:
+        cursor.execute("SELECT id, name FROM school_class ORDER BY name")
+        classes_rows = cursor.fetchall()
+        classes = [dict(r) for r in classes_rows]
+    except Exception as e:
+        print(f"Error loading classes: {e}")
+        classes = []
+    
+    # Get selected class and date from query parameters
+    selected_class_id = request.args.get('class_id')
+    selected_date = request.args.get('date', get_current_date().strftime('%Y-%m-%d'))
+    
+    students = []
+    all_periods = []
+    attendance_records = {}
+    daily_attendance_records = {}
+    
+    if selected_class_id and selected_date:
+        try:
+            # Fetch students for the selected class
+            cursor.execute("""
+                SELECT id, name FROM student 
+                WHERE class_id = %s 
+                ORDER BY name
+            """, (selected_class_id,))
+            students_rows = cursor.fetchall()
+            students = [dict(r) for r in students_rows]
+            
+            # Get all periods (all days)
+            cursor.execute("""
+                SELECT DISTINCT period_num 
+                FROM period 
+                ORDER BY period_num
+            """)
+            periods_rows = cursor.fetchall()
+            all_periods = [{'period_num': r['period_num']} for r in periods_rows]
+            
+            # Fetch attendance records for the selected date
+            cursor.execute("""
+                SELECT student_id, period, status
+                FROM attendance 
+                WHERE class_id = %s AND date = %s
+                ORDER BY student_id, period
+            """, (selected_class_id, selected_date))
+            att_rows = cursor.fetchall()
+            
+            # Build attendance records dictionary
+            for row in att_rows:
+                key = f"{row['student_id']}_{row['period']}"
+                attendance_records[key] = {
+                    'status': row['status']
+                }
+            
+            # Fetch daily attendance records
+            cursor.execute("""
+                SELECT student_id, overall_status, notes
+                FROM daily_attendance 
+                WHERE date = %s
+            """, (selected_date,))
+            daily_att_rows = cursor.fetchall()
+            
+            for row in daily_att_rows:
+                daily_attendance_records[str(row['student_id'])] = {
+                    'overall_status': row['overall_status'],
+                    'notes': row['notes']
+                }
+        
+        except Exception as e:
+            print(f"Error loading daily attendance data: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    return render_template('public_daily_attendance.html',
+                         classes=classes,
+                         selected_class_id=selected_class_id,
+                         selected_date=selected_date,
+                         students=students,
+                         all_periods=all_periods,
+                         attendance_records=attendance_records,
+                         daily_attendance_records=daily_attendance_records)
+
+@app.route('/public-daily-attendance/save', methods=['POST'])
+def save_public_daily_attendance():
+    """Save daily attendance records"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get form data
+        class_id = request.form.get('class_id')
+        date = request.form.get('date')
+        
+        if not class_id or not date:
+            flash('معلومات غير كاملة', 'danger')
+            return redirect(url_for('public_daily_attendance'))
+        
+        # Get all students for the class
+        cursor.execute("""
+            SELECT id FROM student WHERE class_id = %s
+        """, (class_id,))
+        students = cursor.fetchall()
+        
+        # Process each student's overall status and notes
+        for student in students:
+            student_id = student['id']
+            overall_status_key = f'overall_status_{student_id}'
+            notes_key = f'notes_{student_id}'
+            
+            overall_status_value = request.form.get(overall_status_key, '')
+            notes = request.form.get(notes_key, '').strip()
+            
+            # Determine final overall status
+            if overall_status_value == 'present':
+                final_status = 'present'
+            elif overall_status_value == 'excused':
+                final_status = 'present'
+            elif overall_status_value == 'still_absent':
+                final_status = 'absent'
+            else:
+                # If no value, check actual attendance
+                cursor.execute("""
+                    SELECT COUNT(*) as absent_count
+                    FROM attendance
+                    WHERE student_id = %s AND date = %s AND class_id = %s AND status = 'absent'
+                """, (student_id, date, class_id))
+                result = cursor.fetchone()
+                if result and result['absent_count'] > 0:
+                    final_status = 'absent'
+                else:
+                    final_status = 'present'
+            
+            # Check if record exists
+            cursor.execute("""
+                SELECT student_id FROM daily_attendance 
+                WHERE student_id = %s AND date = %s
+            """, (student_id, date))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update existing record
+                cursor.execute("""
+                    UPDATE daily_attendance 
+                    SET overall_status = %s, notes = %s
+                    WHERE student_id = %s AND date = %s
+                """, (final_status, notes if notes else None, student_id, date))
+            else:
+                # Insert new record
+                cursor.execute("""
+                    INSERT INTO daily_attendance (student_id, date, overall_status, notes)
+                    VALUES (%s, %s, %s, %s)
+                """, (student_id, date, final_status, notes if notes else None))
+        
+        conn.commit()
+        flash('تم حفظ الحضور اليومي بنجاح', 'success')
+        return redirect(url_for('public_daily_attendance', class_id=class_id, date=date))
+    
+    except Exception as e:
+        print(f"Error saving daily attendance: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'حدث خطأ أثناء حفظ الحضور: {str(e)}', 'danger')
+        return redirect(url_for('public_daily_attendance'))
+
+@app.route('/export-daily-attendance-excel', methods=['POST'])
+def export_daily_attendance_excel():
+    """Export daily attendance to Excel for selected classes"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get form data
+        class_ids = request.form.getlist('class_ids')
+        date = request.form.get('date', get_current_date().strftime('%Y-%m-%d'))
+        
+        if not class_ids:
+            flash('يرجى اختيار صف واحد على الأقل', 'danger')
+            return redirect(url_for('public_daily_attendance'))
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "الحضور اليومي"
+        
+        # Styles
+        title_font = Font(name='Arial', size=16, bold=True)
+        header_font = Font(name='Arial', size=12, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        center_alignment = Alignment(horizontal='center', vertical='center')
+        right_alignment = Alignment(horizontal='right', vertical='center')
+        
+        current_row = 1
+        
+        # Get all periods
+        cursor.execute("""
+            SELECT DISTINCT period_num 
+            FROM period 
+            ORDER BY period_num
+        """)
+        all_periods = [r['period_num'] for r in cursor.fetchall()]
+        
+        for class_id in class_ids:
+            # Get class info
+            cursor.execute("SELECT name FROM school_class WHERE id = %s", (class_id,))
+            class_info = cursor.fetchone()
+            class_name = class_info['name'] if class_info else f"Class {class_id}"
+            
+            # Title
+            ws.merge_cells(f'A{current_row}:E{current_row}')
+            title_cell = ws[f'A{current_row}']
+            title_cell.value = "تقرير الحضور اليومي"
+            title_cell.font = title_font
+            title_cell.alignment = center_alignment
+            current_row += 1
+            
+            # Class and Date
+            ws.merge_cells(f'A{current_row}:E{current_row}')
+            class_cell = ws[f'A{current_row}']
+            class_cell.value = f"الصف: {class_name} | التاريخ: {date}"
+            class_cell.font = Font(name='Arial', size=12, bold=True)
+            class_cell.alignment = center_alignment
+            current_row += 1
+            current_row += 1  # Empty row
+            
+            # Headers
+            header_row = current_row
+            ws[f'A{header_row}'] = "اسم الطالب"
+            col_index = 2  # B column
+            for period_num in all_periods:
+                col_letter = chr(64 + col_index)
+                ws[f'{col_letter}{header_row}'] = f"الحصة {period_num}"
+                col_index += 1
+            
+            overall_col = chr(64 + col_index)
+            ws[f'{overall_col}{header_row}'] = "الحالة العامة"
+            col_index += 1
+            notes_col = chr(64 + col_index)
+            ws[f'{notes_col}{header_row}'] = "الملاحظات"
+            
+            # Apply header styling
+            for col in range(1, col_index + 1):
+                cell = ws.cell(row=header_row, column=col)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = center_alignment
+            
+            current_row += 1
+            data_start_row = current_row
+            
+            # Get students
+            cursor.execute("""
+                SELECT id, name FROM student 
+                WHERE class_id = %s 
+                ORDER BY name
+            """, (class_id,))
+            students = cursor.fetchall()
+            
+            # Statistics counters
+            period_present_count = {p: 0 for p in all_periods}
+            period_absent_count = {p: 0 for p in all_periods}
+            overall_present_count = 0
+            overall_absent_count = 0
+            excused_count = 0
+            
+            for student in students:
+                student_id = student['id']
+                student_name = student['name']
+                
+                # Student name
+                ws[f'A{current_row}'] = student_name
+                ws[f'A{current_row}'].alignment = right_alignment
+                
+                # Get attendance for each period
+                cursor.execute("""
+                    SELECT period, status
+                    FROM attendance 
+                    WHERE student_id = %s AND date = %s AND class_id = %s
+                """, (student_id, date, class_id))
+                attendance_records = {r['period']: r['status'] for r in cursor.fetchall()}
+                
+                col_index = 2
+                for period_num in all_periods:
+                    col_letter = chr(64 + col_index)
+                    status = attendance_records.get(period_num, '')
+                    if status == 'present':
+                        ws[f'{col_letter}{current_row}'] = "✓"
+                        ws[f'{col_letter}{current_row}'].font = Font(color="00FF00", bold=True)
+                        period_present_count[period_num] += 1
+                    elif status == 'absent':
+                        ws[f'{col_letter}{current_row}'] = "✗"
+                        ws[f'{col_letter}{current_row}'].font = Font(color="FF0000", bold=True)
+                        period_absent_count[period_num] += 1
+                    else:
+                        ws[f'{col_letter}{current_row}'] = "-"
+                    ws[f'{col_letter}{current_row}'].alignment = center_alignment
+                    col_index += 1
+                
+                # Get daily attendance (overall status)
+                cursor.execute("""
+                    SELECT overall_status, notes
+                    FROM daily_attendance 
+                    WHERE student_id = %s AND date = %s
+                """, (student_id, date))
+                daily_att = cursor.fetchone()
+                
+                # Overall status with remark
+                if daily_att:
+                    overall_status = daily_att['overall_status']
+                    notes = daily_att['notes'] or ''
+                    
+                    if overall_status == 'present':
+                        ws[f'{overall_col}{current_row}'] = "حاضر"
+                        ws[f'{overall_col}{current_row}'].font = Font(color="008000", bold=True)
+                        overall_present_count += 1
+                        # Check if it was excused
+                        if any(attendance_records.get(p) == 'absent' for p in all_periods):
+                            excused_count += 1
+                    else:
+                        ws[f'{overall_col}{current_row}'] = "غائب"
+                        ws[f'{overall_col}{current_row}'].font = Font(color="FF0000", bold=True)
+                        overall_absent_count += 1
+                    
+                    ws[f'{notes_col}{current_row}'] = notes
+                else:
+                    # Determine from attendance records
+                    has_absent = any(attendance_records.get(p) == 'absent' for p in all_periods)
+                    if has_absent:
+                        ws[f'{overall_col}{current_row}'] = "غائب"
+                        ws[f'{overall_col}{current_row}'].font = Font(color="FF0000", bold=True)
+                        overall_absent_count += 1
+                    else:
+                        ws[f'{overall_col}{current_row}'] = "حاضر"
+                        ws[f'{overall_col}{current_row}'].font = Font(color="008000", bold=True)
+                        overall_present_count += 1
+                
+                ws[f'{overall_col}{current_row}'].alignment = center_alignment
+                ws[f'{notes_col}{current_row}'].alignment = right_alignment
+                
+                current_row += 1
+            
+            # Footer - Statistics
+            current_row += 1
+            footer_row = current_row
+            ws[f'A{footer_row}'] = "الإحصائيات"
+            ws[f'A{footer_row}'].font = Font(bold=True, size=12)
+            current_row += 1
+            
+            # Period statistics
+            ws[f'A{current_row}'] = "إحصائيات الحصص:"
+            ws[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+            
+            col_index = 2
+            for period_num in all_periods:
+                col_letter = chr(64 + col_index)
+                ws[f'{col_letter}{current_row}'] = f"الحصة {period_num}: حاضر {period_present_count[period_num]} | غائب {period_absent_count[period_num]}"
+                col_index += 1
+            current_row += 1
+            
+            # Overall status summary
+            ws[f'A{current_row}'] = "ملخص الحالة العامة:"
+            ws[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+            
+            ws[f'A{current_row}'] = f"إجمالي الحضور: {overall_present_count}"
+            ws[f'A{current_row}'].font = Font(color="008000", bold=True)
+            current_row += 1
+            
+            ws[f'A{current_row}'] = f"إجمالي الغياب: {overall_absent_count}"
+            ws[f'A{current_row}'].font = Font(color="FF0000", bold=True)
+            current_row += 1
+            
+            ws[f'A{current_row}'] = f"عدد المعفيين: {excused_count}"
+            ws[f'A{current_row}'].font = Font(color="0000FF", bold=True)
+            current_row += 3  # Space before next class
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 25
+        for col in range(2, col_index + 1):
+            ws.column_dimensions[chr(64 + col)].width = 12
+        
+        # Save to BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Generate filename
+        filename = f"daily_attendance_{date}.xlsx"
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    
+    except Exception as e:
+        print(f"Error exporting to Excel: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'حدث خطأ أثناء التصدير: {str(e)}', 'danger')
+        return redirect(url_for('public_daily_attendance'))
+
 @app.route('/attendance-tabs', methods=['GET'])
 def attendance_tabs():
     """Public page to record attendance with class tabs"""

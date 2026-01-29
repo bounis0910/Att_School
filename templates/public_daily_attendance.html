@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الحضور اليومي الشامل</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #366092;
+            --secondary-color: #5a8bc9;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --light-bg: #f8f9fa;
+            --border-color: #dee2e6;
+        }
+        
+        body {
+            background-color: var(--light-bg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            padding: 25px 0;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-weight: 700;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+        
+        .selection-section {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        .selection-section h3 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .form-group label {
+            color: var(--primary-color);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .btn-select {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-select:hover {
+            background: var(--secondary-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .btn-save {
+            background: var(--success-color);
+            color: white;
+            border: none;
+            padding: 12px 40px;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-save:hover {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .attendance-section {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 25px;
+        }
+        
+        .attendance-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .attendance-table thead {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .attendance-table th {
+            padding: 12px 5px;
+            text-align: center;
+            font-weight: 600;
+            border: 1px solid var(--border-color);
+        }
+        
+        .attendance-table tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        .attendance-table tbody tr:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .attendance-table td {
+            padding: 12px 5px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+        
+        .student-name {
+            text-align: right;
+            font-weight: 500;
+        }
+        
+        .status-present {
+            color: var(--success-color);
+            font-weight: bold;
+        }
+        
+        .status-absent {
+            color: var(--danger-color);
+            font-weight: bold;
+        }
+        
+        .overall-status-cell {
+            background-color: #f0f8ff;
+        }
+        
+        .notes-cell {
+            background-color: #f0f8ff;
+        }
+        
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 25px;
+            flex-wrap: wrap;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .export-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid var(--success-color);
+        }
+        
+        .export-section h3 {
+            color: var(--success-color);
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        
+        .class-checkboxes {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .class-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .class-checkbox-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .class-checkbox-item label {
+            cursor: pointer;
+            margin: 0;
+            font-weight: normal;
+        }
+        
+        .btn-export {
+            background: var(--success-color);
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-export:hover:not(:disabled) {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .btn-export:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>الحضور اليومي الشامل للطلاب</h1>
+    </div>
+    
+    <div class="container-fluid" style="max-width: 100%;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'danger' else 'success' if category == 'success' else 'warning' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <!-- Export Section -->
+        <div class="export-section">
+            <h3>تصدير الحضور اليومي إلى Excel</h3>
+            <form id="exportForm" method="POST" action="{{ url_for('export_daily_attendance_excel') }}" target="_blank">
+                <input type="hidden" name="date" id="export_date" value="{{ selected_date }}">
+                <div class="class-checkboxes" id="classCheckboxes">
+                    {% for cls in classes %}
+                        <div class="class-checkbox-item">
+                            <input type="checkbox" 
+                                   name="class_ids" 
+                                   value="{{ cls.id }}" 
+                                   id="class_{{ cls.id }}"
+                                   onchange="toggleExportButton()">
+                            <label for="class_{{ cls.id }}">{{ cls.name }}</label>
+                        </div>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn-export" id="exportBtn" disabled>
+                    <i class="bi bi-file-earmark-excel"></i> تصدير إلى Excel
+                </button>
+            </form>
+        </div>
+        
+        <!-- Selection Section -->
+        <div class="selection-section">
+            <h3>اختر الصف والتاريخ</h3>
+            <form method="GET" action="{{ url_for('public_daily_attendance') }}" class="row g-3">
+                <div class="col-md-5">
+                    <label class="form-label">الصف <span style="color: red;">*</span></label>
+                    <select name="class_id" class="form-select" required onchange="this.form.submit()">
+                        <option value="">-- اختر صف --</option>
+                        {% for cls in classes %}
+                            <option value="{{ cls.id }}" {% if selected_class_id == cls.id|string %}selected{% endif %}>
+                                {{ cls.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="col-md-5">
+                    <label class="form-label">التاريخ <span style="color: red;">*</span></label>
+                    <input type="date" name="date" class="form-control" 
+                           value="{{ selected_date }}" 
+                           required 
+                           onchange="this.form.submit()">
+                </div>
+            </form>
+        </div>
+        
+        {% if selected_class_id and selected_date and students %}
+            <!-- Attendance Section -->
+            <form method="POST" action="{{ url_for('save_public_daily_attendance') }}" id="dailyAttendanceForm">
+                <input type="hidden" name="class_id" value="{{ selected_class_id }}">
+                <input type="hidden" name="date" value="{{ selected_date }}">
+                
+                <div class="attendance-section">
+                    <div class="table-responsive">
+                        <table class="attendance-table">
+                            <thead>
+                                <tr>
+                                    <th>الطالب</th>
+                                    {% for period in all_periods %}
+                                        <th>الحصة {{ period.period_num }}</th>
+                                    {% endfor %}
+                                    <th class="overall-status-cell">الحالة العامة</th>
+                                    <th class="notes-cell">الملاحظات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for student in students %}
+                                    {% set has_absent = namespace(value=False) %}
+                                    {% set all_present = namespace(value=True) %}
+                                    
+                                    <tr>
+                                        <td class="student-name">{{ student.name }}</td>
+                                        
+                                        <!-- Period columns -->
+                                        {% for period in all_periods %}
+                                            {% set att_key = student.id|string + '_' + period.period_num|string %}
+                                            {% set status = attendance_records.get(att_key, {}).get('status', '') %}
+                                            
+                                            {% if status == 'absent' %}
+                                                {% set has_absent.value = True %}
+                                                {% set all_present.value = False %}
+                                            {% endif %}
+                                            
+                                            <td>
+                                                {% if status == 'present' %}
+                                                    <span class="status-present">✓</span>
+                                                {% elif status == 'absent' %}
+                                                    <span class="status-absent">✗</span>
+                                                {% else %}
+                                                    <span style="color: #999;">-</span>
+                                                {% endif %}
+                                            </td>
+                                        {% endfor %}
+                                        
+                                        <!-- Overall Status Column -->
+                                        <td class="overall-status-cell">
+                                            {% set daily_att = daily_attendance_records.get(student.id|string, {}) %}
+                                            {% set overall_status = daily_att.get('overall_status', '') %}
+                                            
+                                            {% if has_absent.value %}
+                                                <select class="form-select form-select-sm" 
+                                                        name="overall_status_{{ student.id }}"
+                                                        data-student-id="{{ student.id }}">
+                                                    <option value="">-- اختر --</option>
+                                                    <option value="excused" {% if overall_status == 'excused' %}selected{% endif %}>معفى (حاضر)</option>
+                                                    <option value="still_absent" {% if overall_status == 'still_absent' %}selected{% endif %}>غائب فعلاً</option>
+                                                </select>
+                                                {% if overall_status %}
+                                                    <div style="margin-top: 8px; font-size: 12px; font-weight: bold;">
+                                                        {% if overall_status == 'present' %}
+                                                            <span class="status-present">✓ حاضر</span>
+                                                        {% elif overall_status == 'absent' %}
+                                                            <span class="status-absent">✗ غائب</span>
+                                                        {% endif %}
+                                                    </div>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="status-present">✓ حاضر</span>
+                                                <input type="hidden" name="overall_status_{{ student.id }}" value="present">
+                                            {% endif %}
+                                        </td>
+                                        
+                                        <!-- Notes Column -->
+                                        <td class="notes-cell">
+                                            <input type="text" 
+                                                   class="form-control form-control-sm"
+                                                   name="notes_{{ student.id }}"
+                                                   placeholder="أضف ملاحظة..."
+                                                   value="{{ daily_att.get('notes', '') }}"
+                                                   style="min-width: 150px;">
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button type="submit" class="btn-save">حفظ الحضور اليومي</button>
+                    </div>
+                </div>
+            </form>
+        {% elif selected_class_id and selected_date %}
+            <div class="attendance-section no-data">
+                <p>لا توجد طلاب في هذا الصف</p>
+            </div>
+        {% endif %}
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function toggleExportButton() {
+            const checkboxes = document.querySelectorAll('input[name="class_ids"]:checked');
+            const exportBtn = document.getElementById('exportBtn');
+            const selectedDate = document.querySelector('input[name="date"]');
+            
+            // Update hidden date field in export form
+            if (selectedDate) {
+                document.getElementById('export_date').value = selectedDate.value;
+            }
+            
+            // Enable button if at least one checkbox is selected
+            exportBtn.disabled = checkboxes.length === 0;
+        }
+    </script>
+</body>
+</html>
