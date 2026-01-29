@@ -1664,13 +1664,18 @@ def public_attendance():
             day_of_week = get_current_datetime().weekday()  # Monday=0, Sunday=6
             day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0, Monday=1
             
-            # Fetch periods for today
+            # Fetch periods for today with teacher names from attendance records
             cursor.execute("""
-                SELECT id, day_of_week, period_num, start_time, end_time 
-                FROM period 
-                WHERE day_of_week = %s 
-                ORDER BY period_num
-            """, (day_of_week,))
+                SELECT DISTINCT p.id, p.day_of_week, p.period_num, p.start_time, p.end_time,
+                       u.username as teacher_name
+                FROM period p
+                LEFT JOIN attendance a ON a.period = p.period_num 
+                    AND a.date = %s 
+                    AND a.class_id = %s
+                LEFT JOIN "user" u ON u.id = a.teacher_id
+                WHERE p.day_of_week = %s 
+                ORDER BY p.period_num
+            """, (today, selected_class_id, day_of_week))
             periods_rows = cursor.fetchall()
             # Convert time objects to strings for JSON serialization
             periods_today = []
@@ -1678,6 +1683,7 @@ def public_attendance():
                 period_dict = dict(r)
                 period_dict['start_time'] = str(period_dict['start_time']) if period_dict.get('start_time') else None
                 period_dict['end_time'] = str(period_dict['end_time']) if period_dict.get('end_time') else None
+                period_dict['teacher_name'] = period_dict.get('teacher_name')
                 periods_today.append(period_dict)
             
             # Determine current period based on time

@@ -403,14 +403,16 @@
                                                 {% if period.start_time and period.end_time %}
                                                     <br><small>{{ period.start_time|string }} - {{ period.end_time|string }}</small>
                                                 {% endif %}
+                                                {% if period.teacher_name %}
+                                                    <br><small style="font-weight: normal;">{{ period.teacher_name }}</small>
+                                                {% else %}
+                                                    <br><small style="font-weight: normal; color: #999;">لا يوجد مدرس</small>
+                                                {% endif %}
                                                 {% if period.period_num == current_period %}
                                                     <br><span class="current-period-indicator">حالي</span>
                                                 {% endif %}
                                             </th>
                                         {% endfor %}
-                                        <th style="background-color: #366092; color: white;">الحالة العامة</th>
-                                        <th style="background-color: #366092; color: white;">الملاحظة</th>
-                                        <th style="background-color: #366092; color: white;">الملاحظات</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -444,55 +446,8 @@
                                                             {% if not is_current %}disabled{% endif %}
                                                             onchange="handleAttendanceChange(this)">
                                                     </div>
-                                                    
-                                                    <!-- Remark field for absent students in current period -->
-                                                    {% if not is_present and is_current %}
-                                                        <div style="margin-top: 8px;">
-                                                            <select class="remark-select" 
-                                                                name="remark_{{ student.id }}_{{ period.period_num }}"
-                                                                data-student-id="{{ student.id }}"
-                                                                data-period="{{ period.period_num }}">
-                                                                <option value="">-- اختر --</option>
-                                                                <option value="excused" {% if remark == 'excused' %}selected{% endif %}>معفى</option>
-                                                                <option value="still absent" {% if remark == 'still absent' %}selected{% endif %}>غائب فعلا</option>
-                                                            </select>
-                                                        </div>
-                                                    {% endif %}
                                                 </td>
                                             {% endfor %}
-                                            
-                                            <!-- Overall Status Column -->
-                                            <td style="text-align: center; font-weight: bold;">
-                                                {% if last_period_status == 'absent' or current_period_status == 'absent' %}
-                                                    <span style="color: #dc3545; font-size: 14px;">✗ غائب</span>
-                                                {% else %}
-                                                    <span style="color: #28a745; font-size: 14px;">✓ حاضر</span>
-                                                {% endif %}
-                                            </td>
-                                            
-                                            <!-- Remark Column -->
-                                            <td style="text-align: center;">
-                                                {% if last_period_status == 'absent' or current_period_status == 'absent' %}
-                                                    <select class="remark-select form-select form-select-sm" 
-                                                        name="remark_student_{{ student.id }}"
-                                                        data-student-id="{{ student.id }}"
-                                                        onchange="updateRemarkAndCounts({{ student.id }}, this.value)">
-                                                        <option value="">-- اختر --</option>
-                                                        <option value="excused" {% if last_period_status == 'absent' and attendance_records.get(last_period_att_key, {}).get('remark') == 'excused' %}selected{% endif %}>معفى</option>
-                                                        <option value="still absent" {% if last_period_status == 'absent' and attendance_records.get(last_period_att_key, {}).get('remark') == 'still absent' %}selected{% endif %}>غائب فعلا</option>
-                                                    </select>
-                                                {% endif %}
-                                            </td>
-                                            
-                                            <!-- Notes Column -->
-                                            <td style="text-align: center;">
-                                                <input type="text" 
-                                                    class="form-control form-control-sm"
-                                                    name="notes_student_{{ student.id }}"
-                                                    placeholder="أضف ملاحظة..."
-                                                    value="{{ attendance_records.get(last_period_att_key, {}).get('notes', '') }}"
-                                                    style="width: 150px;">
-                                            </td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>
@@ -530,14 +485,6 @@
             const period = checkbox.dataset.period;
             const isChecked = checkbox.checked;
             
-            // If changing to present, clear the remark
-            if (isChecked) {
-                const remarkSelect = document.querySelector(`select[name="remark_${studentId}_${period}"]`);
-                if (remarkSelect) {
-                    remarkSelect.value = '';
-                }
-            }
-            
             updateCounts();
             
             // Save attendance status immediately
@@ -564,61 +511,6 @@
             .then(data => {
                 if (!data.success) {
                     console.error('Error saving attendance:', data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-            });
-        }
-        
-        function updateRemarkAndCounts(studentId, remarkValue) {
-            // Save remark
-            const periodsList = {{ periods_today|tojson if periods_today else '[]' }};
-            const lastPeriodNum = periodsList.length > 0 ? periodsList[periodsList.length - 1].period_num : 0;
-            
-            // Get the remark select and overall status elements
-            const remarkSelect = document.querySelector(`select[name="remark_student_${studentId}"]`);
-            const overallStatusCell = remarkSelect.closest('tr').querySelector('td[style*="font-weight: bold"]');
-            
-            fetch('{{ url_for("save_remark") }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    student_id: studentId,
-                    period: lastPeriodNum,
-                    remark: remarkValue,
-                    class_id: selectedClassId,
-                    teacher_id: selectedTeacherId
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Update counts when remark is changed
-                    if (remarkValue === 'excused') {
-                        // Excused: present count increases, absent count decreases
-                        let presentCount = parseInt(document.getElementById('presentCount').textContent);
-                        let absentCount = parseInt(document.getElementById('absentCount').textContent);
-                        if (absentCount > 0) {
-                            presentCount++;
-                            absentCount--;
-                            document.getElementById('presentCount').textContent = presentCount;
-                            document.getElementById('absentCount').textContent = absentCount;
-                        }
-                        
-                        // Disable the select and update overall status to present
-                        remarkSelect.disabled = true;
-                        overallStatusCell.innerHTML = '<span style="color: #28a745; font-size: 14px;">✓ حاضر</span>';
-                    } else if (remarkValue === 'still absent') {
-                        // Still absent: re-enable select and show absent status
-                        remarkSelect.disabled = false;
-                        overallStatusCell.innerHTML = '<span style="color: #dc3545; font-size: 14px;">✗ غائب</span>';
-                    } else if (remarkValue === '') {
-                        // Clear selection: re-enable select
-                        remarkSelect.disabled = false;
-                    }
                 }
             })
             .catch(error => {
@@ -675,31 +567,6 @@
             const spinner = btn.querySelector('.spinner');
             spinner.style.display = 'inline-block';
             btn.disabled = true;
-            
-            // Save all notes before form submission
-            const noteInputs = document.querySelectorAll('input[name^="notes_student_"]');
-            const periodsList = {{ periods_today|tojson if periods_today else '[]' }};
-            const lastPeriodNum = periodsList.length > 0 ? periodsList[periodsList.length - 1].period_num : 0;
-            
-            noteInputs.forEach(input => {
-                const studentId = input.name.replace('notes_student_', '');
-                const notes = input.value;
-                if (notes) {
-                    fetch('{{ url_for("save_notes") }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            student_id: studentId,
-                            period: lastPeriodNum,
-                            notes: notes,
-                            class_id: selectedClassId,
-                            teacher_id: selectedTeacherId
-                        })
-                    }).catch(error => console.error('Error saving notes:', error));
-                }
-            });
         });
     </script>
 </body>
