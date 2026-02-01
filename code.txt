@@ -199,6 +199,40 @@ sudo -u postgres psql
 \dt	List tables in current database
 \dt *.*	List all tables in all schemas
 \q	Quit psql
+***********************************
+
+SELECT current_user;
+
+Step 2: Find who owns the table
+SELECT tableowner
+FROM pg_tables
+WHERE tablename = 'daily_attendance';
+
+Step 3: Grant permissions (run as table owner or superuser)
+
+GRANT SELECT ON TABLE daily_attendance TO your_user;
+If you need full access:
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON TABLE daily_attendance
+TO your_user;
+
+If you want to grant everything:
+GRANT ALL PRIVILEGES ON TABLE daily_attendance TO your_user;
+Replace your_user with the result from current_user.
+
+Step 4 (optional but common): Schema permissions
+If the table is in public or another schema, you may also need:
+
+GRANT USAGE ON SCHEMA public TO your_user;
+Without this, Postgres can still block access even if table permissions exist 🤦‍♂️
+
+Step 5: Future-proof it (optional)
+If new tables will be created and you want automatic access:
+
+ALTER DEFAULT PRIVILEGES
+IN SCHEMA public
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON TABLES TO your_user;
 
 
 **********AWS*********************
