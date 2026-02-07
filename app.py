@@ -686,7 +686,7 @@ def admin_users_create():
         username = request.form.get('name')
         role = request.form.get('role')
         password = request.form.get('password')
-        national_id = request.form.get('national_id')
+        roll_number = request.form.get('roll_number')
         email = request.form.get('email')
         assigned_classes = request.form.getlist('assigned_classes')
         
@@ -711,8 +711,8 @@ def admin_users_create():
             classes_string = ','.join(assigned_classes) if assigned_classes else None
             
             cursor.execute(
-                'INSERT INTO "user" (username, password, role, email, national_id, classes) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
-                (username, hashed_pw, role, email, national_id, classes_string)
+                'INSERT INTO "user" (username, password, role, email, roll_number, classes) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+                (username, hashed_pw, role, email, roll_number, classes_string)
             )
             new_user_id = cursor.fetchone()['id']
             
@@ -748,7 +748,7 @@ def admin_users_edit(user_id):
         username = request.form.get('name')
         role = request.form.get('role')
         password = request.form.get('password')
-        national_id = request.form.get('national_id')
+        roll_number = request.form.get('roll_number')
         email = request.form.get('email')
         assigned_classes = request.form.getlist('assigned_classes')
         
@@ -760,13 +760,13 @@ def admin_users_edit(user_id):
             if password:
                 hashed_pw = generate_password_hash(password, method='scrypt')
                 cursor.execute(
-                    'UPDATE "user" SET username = %s, role = %s, password = %s, email = %s, national_id = %s, classes = %s WHERE id = %s',
-                    (username, role, hashed_pw, email, national_id, classes_string, user_id)
+                    'UPDATE "user" SET username = %s, role = %s, password = %s, email = %s, roll_number = %s, classes = %s WHERE id = %s',
+                    (username, role, hashed_pw, email, roll_number, classes_string, user_id)
                 )
             else:
                 cursor.execute(
-                    'UPDATE "user" SET username = %s, role = %s, email = %s, national_id = %s, classes = %s WHERE id = %s',
-                    (username, role, email, national_id, classes_string, user_id)
+                    'UPDATE "user" SET username = %s, role = %s, email = %s, roll_number = %s, classes = %s WHERE id = %s',
+                    (username, role, email, roll_number, classes_string, user_id)
                 )
             
             conn.commit()
@@ -1363,7 +1363,7 @@ def staff_export_students_excel():
         
         # Get students for the selected class
         cursor.execute("""
-            SELECT s.id, s.name, s.national_id, s.phone1, s.phone2, c.name as class_name
+            SELECT s.id, s.name, s.roll_number, s.phone1, s.phone2, c.name as class_name
             FROM student s
             LEFT JOIN school_class c ON s.class_id = c.id
             WHERE s.class_id = %s
@@ -1392,7 +1392,7 @@ def staff_export_students_excel():
         for row_num, student_row in enumerate(students_rows, 2):
             ws.cell(row=row_num, column=1, value=student_row['id'])
             ws.cell(row=row_num, column=2, value=student_row['name'])
-            ws.cell(row=row_num, column=3, value=student_row['national_id'])
+            ws.cell(row=row_num, column=3, value=student_row['roll_number'])
             ws.cell(row=row_num, column=4, value=student_row['phone1'])
             ws.cell(row=row_num, column=5, value=student_row['phone2'])
             ws.cell(row=row_num, column=6, value=student_row['class_name'])
@@ -1524,7 +1524,7 @@ def export_students_excel():
         
         # Get students for the selected class
         cursor.execute("""
-            SELECT s.id, s.name, s.national_id, s.phone1, s.phone2, c.name as class_name
+            SELECT s.id, s.name, s.roll_number, s.phone1, s.phone2, c.name as class_name
             FROM student s
             LEFT JOIN school_class c ON s.class_id = c.id
             WHERE s.class_id = %s
@@ -1553,7 +1553,7 @@ def export_students_excel():
         for row_num, student_row in enumerate(students_rows, 2):
             ws.cell(row=row_num, column=1, value=student_row['id'])
             ws.cell(row=row_num, column=2, value=student_row['name'])
-            ws.cell(row=row_num, column=3, value=student_row['national_id'])
+            ws.cell(row=row_num, column=3, value=student_row['roll_number'])
             ws.cell(row=row_num, column=4, value=student_row['phone1'])
             ws.cell(row=row_num, column=5, value=student_row['phone2'])
             ws.cell(row=row_num, column=6, value=student_row['class_name'])

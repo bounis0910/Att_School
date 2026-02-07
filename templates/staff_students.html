@@ -3,11 +3,11 @@
 <div class="container mt-4">
     <div class="row mb-4">
         <div class="col-md-8">
-            <h3><i class="bi bi-people"></i> Students by Class</h3>
+            <h3><i class="bi bi-people"></i> الطلاب حسب الصفوف</h3>
         </div>
         <div class="col-md-4 text-end">
             <a href="{{ url_for('staff_dashboard') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Dashboard
+                <i class="bi bi-arrow-left"></i> لوحة المشرف
             </a>
         </div>
     </div>
@@ -15,14 +15,14 @@
     <!-- Class Selection -->
     <div class="card mb-4">
         <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Class</h5>
+            <h5 class="mb-0"><i class="bi bi-funnel"></i> اختر صف</h5>
         </div>
         <div class="card-body">
             <form method="get" class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label" for="classSelect">Choose Class:</label>
+                    <label class="form-label" for="classSelect">الصف:</label>
                     <select name="class_id" id="classSelect" class="form-select" onchange="this.form.submit()">
-                        <option value="">-- All Students --</option>
+                        <option value="">-- جميع الطلاب --</option>
                         {% for cls in classes %}
                         <option value="{{ cls.id }}" {% if selected_class_id == cls.id %}selected{% endif %}>
                             {{ cls.name }}
@@ -77,7 +77,7 @@
                                         <strong>{{ student.name }}</strong>
                                     </td>
                                     <td>
-                                        <code>{{ student.national_id or '—' }}</code>
+                                        <code>{{ student.roll_number or '—' }}</code>
                                     </td>
                                     <td>
                                         <span class="phone-display" id="phone1_{{ student.id }}">

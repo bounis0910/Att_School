@@ -6,23 +6,25 @@
 </div>
 {% endif %} {% if has_assigned_classes %}
 <div class="alert alert-success">
-  <i class="bi bi-info-circle"></i> Showing attendance for your assigned classes
-  only
+  <i class="bi bi-info-circle"></i> صفوف الجناح/المشرف
 </div>
 {% endif %}
 
 <div class="mb-3">
   <a class="btn btn-info" href="{{ url_for('staff_students') }}">
-    <i class="bi bi-people"></i> Manage Students
+    <i class="bi bi-people"></i> التصرف في الطلاب
   </a>
+  <!--  
   <a class="btn btn-outline-primary" href="/staff/export_excel"
     >Download Excel (today)</a
   >
+  -->
+
   <a class="btn btn-warning" href="{{ url_for('change_password') }}">
-    <i class="bi bi-key"></i> Change My Password
+    <i class="bi bi-key"></i> تغيير كلمة العبور
   </a>
   <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">
-    <i class="bi bi-box-arrow-right"></i> Logout
+    <i class="bi bi-box-arrow-right"></i> تسجيل الخروج
   </a>
 </div>
 
