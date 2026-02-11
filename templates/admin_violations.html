@@ -1,0 +1,53 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Manage Violations</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('admin_dashboard') }}">Back to Admin</a>
+</div>
+
+<table class="table table-sm">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Student</th>
+      <th>Class</th>
+      <th>Violation</th>
+      <th>Period</th>
+      <th>Recorded</th>
+      <th>By</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in violations %}
+    <tr>
+      <td>{{ v.id }}</td>
+      <td>{{ v.student_name or v.student_id }}</td>
+      <td>{{ v.class_name or v.class_id }}</td>
+      <td>{{ v.violation_name }}</td>
+      <td>{{ v.period or '-' }}</td>
+      <td>{{ v.created_at }}</td>
+      <td>{{ v.staff_name or v.staff_username or '-' }}</td>
+      <td>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_edit_violation', viol_id=v.id) }}">Edit</a>
+        <form method="POST" action="{{ url_for('admin_delete_violation', viol_id=v.id) }}" style="display:inline" onsubmit="return confirm('Delete this violation?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if pagination and pagination.pages > 1 %}
+<nav>
+  <ul class="pagination">
+    {% for i in range(1, pagination.pages + 1) %}
+      <li class="page-item {% if i == pagination.page %}active{% endif %}"><a class="page-link" href="?page={{ i }}">{{ i }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% endblock %}

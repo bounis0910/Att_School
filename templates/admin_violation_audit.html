@@ -1,0 +1,43 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Violation Audit Log</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('admin_violations') }}">Back to Violations</a>
+</div>
+
+<table class="table table-sm">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Violation ID</th>
+      <th>Action</th>
+      <th>User</th>
+      <th>Details</th>
+      <th>When</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in audits %}
+    <tr>
+      <td>{{ a.id }}</td>
+      <td>{{ a.violation_id or '-' }}</td>
+      <td>{{ a.action }}</td>
+      <td>{{ a.username or a.user_username or '-' }}</td>
+      <td><pre class="small">{{ a.details }}</pre></td>
+      <td>{{ a.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if pagination and pagination.pages > 1 %}
+<nav>
+  <ul class="pagination">
+    {% for i in range(1, pagination.pages + 1) %}
+      <li class="page-item {% if i == pagination.page %}active{% endif %}"><a class="page-link" href="?page={{ i }}">{{ i }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% endblock %}

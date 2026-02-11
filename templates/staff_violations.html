@@ -1,0 +1,251 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Staff Violations</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('staff_dashboard') }}">Back to Dashboard</a>
+</div>
+
+<!-- Filter / Paginated Violations -->
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="row g-2" method="GET" action="{{ url_for('staff_violations') }}">
+      <div class="col-md-2">
+        <label class="form-label">Class</label>
+        <select name="class_id" class="form-select form-select-sm">
+          <option value="">All</option>
+          {% for entry in classes_data %}
+            <option value="{{ entry.class.id }}" {% if filter_class and filter_class == entry.class.id %}selected{% endif %}>{{ entry.class.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3 position-relative">
+        <label class="form-label">Student</label>
+        <input id="student_search" name="student_search" value="" class="form-control form-control-sm" placeholder="Type name..." autocomplete="off" />
+        <input type="hidden" id="student_id" name="student_id" value="{{ filter_student or '' }}" />
+        <div id="student_suggestions" class="list-group position-absolute" style="z-index:1050; display:none; max-height:200px; overflow:auto;"></div>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">From</label>
+        <input type="date" name="start_date" value="{{ start_date or '' }}" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">To</label>
+        <input type="date" name="end_date" value="{{ end_date or '' }}" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2 align-self-end">
+        <button class="btn btn-sm btn-primary" type="submit">Filter</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if paged_violations is defined %}
+<div class="card mb-3">
+  <div class="card-header">All Violations (paginated)</div>
+  <div class="card-body">
+    {% if paged_violations %}
+      <ul class="list-group mb-3">
+      {% for v in paged_violations %}
+        <li class="list-group-item">
+          <div class="d-flex w-100 justify-content-between">
+            <div>
+              <strong>{{ v.violation_name }}</strong>
+              {% if v.lesson_name %} — {{ v.lesson_name }}{% endif %}
+              {% if v.period %} <span class="badge bg-secondary">P{{ v.period }}</span>{% endif %}
+              <div class="text-muted small">Student: {{ v.student_name or v.student_id }} — Class: {{ v.class_name or v.class_id }}</div>
+              {% if v.statement_of_receipt %}<div><em>Statement:</em> {{ v.statement_of_receipt }}</div>{% endif %}
+              {% if v.parental_consent %}<div><em>Parental:</em> {{ v.parental_consent }}</div>{% endif %}
+            </div>
+            <div class="text-end small">
+              <div>Recorded: {{ v.created_at }}</div>
+              <div>By: {{ v.staff_name or v.staff_username or 'N/A' }}</div>
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+      </ul>
+
+      <!-- Pagination controls -->
+      <nav>
+        <ul class="pagination">
+          {% set p = pagination.page %}
+          {% for i in range(1, pagination.pages + 1) %}
+            <li class="page-item {% if i == p %}active{% endif %}"><a class="page-link" href="?page={{ i }}&per_page={{ pagination.per_page }}{% if filter_class %}&class_id={{ filter_class }}{% endif %}{% if filter_student %}&student_id={{ filter_student }}{% endif %}{% if start_date %}&start_date={{ start_date }}{% endif %}{% if end_date %}&end_date={{ end_date }}{% endif %}">{{ i }}</a></li>
+          {% endfor %}
+        </ul>
+      </nav>
+    {% else %}
+      <p class="text-muted">No violations found.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% for entry in classes_data %}
+<div class="card mb-3">
+  <div class="card-header">
+    <strong>{{ entry.class.name }}</strong>
+  </div>
+  <div class="card-body">
+    <div class="list-group">
+      {% for s in entry.students %}
+      <div class="list-group-item">
+        <div class="d-flex w-100 justify-content-between">
+          <h6 class="mb-1">{{ s.student.name }}</h6>
+          <div>
+            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#violationModal-{{ entry.class.id }}-{{ s.student.id }}">Assign Violation</button>
+          </div>
+        </div>
+        <p class="mb-1 text-muted">ID: {{ s.student.national_id or '-' }}</p>
+
+        <h6 class="mt-2">Violations</h6>
+        {% if s.violations %}
+        <ul>
+          {% for v in s.violations %}
+          <li>
+            <strong>{{ v.violation_name }}</strong>
+            {% if v.lesson_name %} — {{ v.lesson_name }}{% endif %}
+            {% if v.period %} (P{{ v.period }}){% endif %}
+            <br />
+            <small class="text-muted">Date: {{ v.date }} — Recorded: {{ v.created_at }}</small>
+            {% if v.statement_of_receipt %}
+            <div><em>Statement:</em> {{ v.statement_of_receipt }}</div>
+            {% endif %}
+            {% if v.parental_consent %}
+            <div><em>Parental:</em> {{ v.parental_consent }}</div>
+            {% endif %}
+            {% if v.referral %}
+            <div><em>Referral:</em> {{ v.referral }}</div>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted">No violations recorded.</p>
+        {% endif %}
+
+        <!-- Violation Modal -->
+        <div class="modal fade" id="violationModal-{{ entry.class.id }}-{{ s.student.id }}" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Assign Violation — {{ s.student.name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <form method="POST" action="{{ url_for('staff_assign_violation') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <div class="modal-body">
+                  <input type="hidden" name="student_id" value="{{ s.student.id }}" />
+                  <input type="hidden" name="class_id" value="{{ entry.class.id }}" />
+                  <input type="hidden" name="date" value="{{ (now()|default(None)) or '' }}" />
+
+                  <div class="mb-2">
+                    <label class="form-label">Violation Name</label>
+                    <input name="violation_name" class="form-control form-control-sm" required />
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label">Lesson Name</label>
+                    <input name="lesson_name" class="form-control form-control-sm" />
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label">Period</label>
+                    <select name="period" class="form-select form-select-sm">
+                      <option value="">-- Select Period --</option>
+                      {% for period in entry.periods %}
+                        <option value="{{ period.period_num }}">Period {{ period.period_num }}{% if period.start_time and period.end_time %} ({{ period.start_time }} - {{ period.end_time }}){% endif %}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label">Statement of Receipt</label>
+                    <textarea name="statement_of_receipt" class="form-control form-control-sm" rows="3"></textarea>
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label">Parental Consent</label>
+                    <select name="parental_consent" class="form-select form-select-sm">
+                      <option value="">-- Select --</option>
+                      <option value="consent">Consent</option>
+                      <option value="refusal">Refusal</option>
+                    </select>
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label">Referral</label>
+                    <textarea name="referral" class="form-control form-control-sm" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                  <button type="submit" class="btn btn-danger">Assign Violation</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const search = document.getElementById('student_search');
+  const suggestions = document.getElementById('student_suggestions');
+  const hiddenId = document.getElementById('student_id');
+
+  let currentFetch = null;
+
+  function hideSuggestions() {
+    suggestions.style.display = 'none';
+    suggestions.innerHTML = '';
+  }
+
+  function showSuggestions(items) {
+    suggestions.innerHTML = '';
+    if (!items || items.length === 0) { hideSuggestions(); return; }
+    for (const it of items) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'list-group-item list-group-item-action';
+      el.textContent = it.name;
+      el.dataset.id = it.id;
+      el.addEventListener('click', () => {
+        hiddenId.value = it.id;
+        search.value = it.name;
+        hideSuggestions();
+      });
+      suggestions.appendChild(el);
+    }
+    suggestions.style.display = 'block';
+  }
+
+  let timeout = null;
+  search && search.addEventListener('input', (e) => {
+    const q = e.target.value.trim();
+    hiddenId.value = '';
+    if (timeout) clearTimeout(timeout);
+    if (!q) { hideSuggestions(); return; }
+    timeout = setTimeout(() => {
+      const url = '/api/students?q=' + encodeURIComponent(q);
+      fetch(url).then(r => r.json()).then(data => {
+        showSuggestions(data || []);
+      }).catch(() => hideSuggestions());
+    }, 250);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!suggestions.contains(e.target) && e.target !== search) hideSuggestions();
+  });
+})();
+</script>
+{% endblock %}

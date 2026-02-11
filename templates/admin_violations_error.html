@@ -1,0 +1,9 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Staff Violations - Error</h3>
+<div class="alert alert-danger">An error occurred while loading violations. Below is the traceback (admin only).</div>
+<pre style="white-space:pre-wrap; background:#f8f9fa; padding:1rem; border:1px solid #ddd;">{{ error }}</pre>
+<div class="mt-3">
+  <a class="btn btn-secondary" href="{{ url_for('admin_dashboard') }}">Back to Admin</a>
+</div>
+{% endblock %}

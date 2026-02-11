@@ -5,6 +5,8 @@ import os
 
 from datetime import date, datetime
 import pytz
+import secrets
+import json
 import pandas as pd
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, g
@@ -84,6 +86,24 @@ def get_db():
         db_conn = g._database = psycopg2.connect(**db_params)
         db_conn.cursor_factory = RealDictCursor
     return db_conn
+
+
+# --- CSRF helpers ---
+def _generate_csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(16)
+        session['_csrf_token'] = token
+    return token
+
+def validate_csrf(token):
+    stored = session.get('_csrf_token')
+    return bool(stored and token and secrets.compare_digest(stored, token))
+
+
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=_generate_csrf_token)
 
 @app.teardown_appcontext
 def close_db(exc):
@@ -407,6 +427,272 @@ def staff_dashboard():
 
     return render_template('staff_dashboard.html', classes=classes, summary=summary, has_assigned_classes=has_assigned_classes, today=today)
 
+
+@app.route('/staff/violations')
+@login_required
+def staff_violations():
+    if current_user.role not in ['admin', 'staff']:
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Get classes assigned to this staff user
+        cursor.execute('SELECT classes FROM "user" WHERE id = %s', (current_user.id,))
+        user_row = cursor.fetchone()
+        classes = []
+        if user_row and user_row.get('classes'):
+            class_ids_str = user_row['classes'].strip()
+            if class_ids_str:
+                class_ids = [cid.strip() for cid in class_ids_str.split(',') if cid.strip()]
+                if class_ids:
+                    placeholders = ','.join(['%s'] * len(class_ids))
+                    cursor.execute(f"SELECT * FROM school_class WHERE id IN ({placeholders}) ORDER BY name", class_ids)
+                    classes_rows = cursor.fetchall()
+                    classes = [RowObject(dict(r)) for r in classes_rows]
+
+        # Ensure violation table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS violation (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                class_id INTEGER,
+                staff_id INTEGER,
+                violation_name TEXT,
+                lesson_name TEXT,
+                period INTEGER,
+                statement_of_receipt TEXT,
+                parental_consent VARCHAR(32),
+                referral TEXT,
+                date DATE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        # Ensure audit table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS violation_audit (
+                id SERIAL PRIMARY KEY,
+                violation_id INTEGER,
+                action VARCHAR(32),
+                user_id INTEGER,
+                username TEXT,
+                details JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Build data: for each class fetch students and their violations
+        classes_data = []
+        for cls in classes:
+            cursor.execute("SELECT * FROM student WHERE class_id = %s ORDER BY name", (cls.id,))
+            students_rows = cursor.fetchall()
+            students = [RowObject(dict(r)) for r in students_rows]
+
+            # fetch periods for this class
+            cursor.execute("SELECT * FROM period WHERE class_id = %s ORDER BY period_num", (cls.id,))
+            periods_rows_cls = cursor.fetchall()
+            periods_for_class = [RowObject(dict(r)) for r in periods_rows_cls]
+
+            # fetch violations for students in this class (include staff info)
+            student_ids = [s.id for s in students]
+            violations_by_student = {}
+            if student_ids:
+                placeholders = ','.join(['%s'] * len(student_ids))
+                cursor.execute(
+                    f"SELECT v.*, u.username as staff_username, u.name as staff_name "
+                    f"FROM violation v LEFT JOIN \"user\" u ON v.staff_id = u.id "
+                    f"WHERE v.student_id IN ({placeholders}) ORDER BY v.created_at DESC",
+                    student_ids
+                )
+                viol_rows = cursor.fetchall()
+                for vr in viol_rows:
+                    sid = vr['student_id']
+                    if sid not in violations_by_student:
+                        violations_by_student[sid] = []
+                    violations_by_student[sid].append(RowObject(dict(vr)))
+
+            students_with_viol = []
+            for s in students:
+                students_with_viol.append({
+                    'student': s,
+                    'violations': violations_by_student.get(s.id, [])
+                })
+
+            classes_data.append({'class': cls, 'students': students_with_viol, 'periods': periods_for_class})
+
+        # --- Paginated / filterable overall violations list ---
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        filter_class = request.args.get('class_id', type=int)
+        filter_student = request.args.get('student_id', type=int)
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        where_clauses = []
+        params = []
+        if filter_class:
+            where_clauses.append('v.class_id = %s')
+            params.append(filter_class)
+        if filter_student:
+            where_clauses.append('v.student_id = %s')
+            params.append(filter_student)
+        if start_date:
+            where_clauses.append('v.date >= %s')
+            params.append(start_date)
+        if end_date:
+            where_clauses.append('v.date <= %s')
+            params.append(end_date)
+
+        where_sql = ('WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+
+        # total count
+        count_sql = f"SELECT COUNT(*) as cnt FROM violation v {where_sql}"
+        cursor.execute(count_sql, tuple(params))
+        cnt_row = cursor.fetchone()
+        total = cnt_row['cnt'] if cnt_row else 0
+
+        offset = (page - 1) * per_page
+        select_sql = (
+            f"SELECT v.*, s.name as student_name, c.name as class_name, u.username as staff_username, u.name as staff_name "
+            f"FROM violation v LEFT JOIN student s ON v.student_id = s.id LEFT JOIN school_class c ON v.class_id = c.id LEFT JOIN \"user\" u ON v.staff_id = u.id {where_sql} "
+            f"ORDER BY v.created_at DESC LIMIT %s OFFSET %s"
+        )
+        exec_params = tuple(params) + (per_page, offset)
+        cursor.execute(select_sql, exec_params)
+        paged_rows = cursor.fetchall()
+        paged_violations = [RowObject(dict(r)) for r in paged_rows]
+
+        pagination = {
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'pages': (total + per_page - 1) // per_page if per_page else 1
+        }
+
+        return render_template('staff_violations.html', classes_data=classes_data, paged_violations=paged_violations, pagination=pagination, filter_class=filter_class, filter_student=filter_student, start_date=start_date, end_date=end_date)
+
+    except Exception as e:
+        import traceback, os
+        tb = traceback.format_exc()
+        print(f"Error loading staff violations: {e}\n{tb}")
+        # write trace to temp file for inspection
+        try:
+            p = '/tmp/violations_trace.log'
+            with open(p, 'a') as fh:
+                fh.write('\n---\n')
+                fh.write(tb)
+        except Exception:
+            pass
+
+        # If admin, show the traceback inline to help debugging
+        if current_user.is_authenticated and getattr(current_user, 'role', None) == 'admin':
+            return render_template('admin_violations_error.html', error=tb), 500
+
+        flash('Error loading violations', 'danger')
+        return redirect(url_for('staff_dashboard'))
+
+
+@app.route('/api/students')
+@login_required
+def api_students():
+    q = request.args.get('q', '').strip()
+    if not q:
+        return {'results': []}, 200
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        like = f"%{q}%"
+        cursor.execute("SELECT id, name FROM student WHERE name ILIKE %s ORDER BY name LIMIT 20", (like,))
+        rows = cursor.fetchall()
+        results = [{'id': r['id'], 'name': r['name']} for r in rows]
+        return results
+    except Exception as e:
+        return [], 200
+
+
+@app.route('/staff/assign_violation', methods=['POST'])
+@login_required
+def staff_assign_violation():
+    if current_user.role not in ['admin', 'staff']:
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    try:
+        student_id = request.form.get('student_id')
+        class_id = request.form.get('class_id')
+        date_val = request.form.get('date')
+        violation_name = request.form.get('violation_name')
+        lesson_name = request.form.get('lesson_name')
+        period = request.form.get('period')
+        statement_of_receipt = request.form.get('statement_of_receipt')
+        parental_consent = request.form.get('parental_consent')
+        referral = request.form.get('referral')
+
+        # CSRF
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token', 'danger')
+            return redirect(request.referrer or url_for('staff_violations'))
+
+        # Basic validation
+        if not student_id or not violation_name:
+            flash('Student and violation name are required', 'danger')
+            return redirect(request.referrer or url_for('staff_violations'))
+        if parental_consent and parental_consent not in ('consent', 'refusal'):
+            flash('Invalid parental consent value', 'danger')
+            return redirect(request.referrer or url_for('staff_violations'))
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Ensure table exists (simple migration)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS violation (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                class_id INTEGER,
+                staff_id INTEGER,
+                violation_name TEXT,
+                lesson_name TEXT,
+                period INTEGER,
+                statement_of_receipt TEXT,
+                parental_consent VARCHAR(32),
+                referral TEXT,
+                date DATE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        cursor.execute("""
+            INSERT INTO violation (student_id, class_id, staff_id, violation_name, lesson_name, period, statement_of_receipt, parental_consent, referral, date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """, (
+            int(student_id), int(class_id) if class_id else None, int(current_user.id), violation_name, lesson_name, int(period) if period else None,
+            statement_of_receipt, parental_consent, referral, date_val
+        ))
+
+        inserted = cursor.fetchone()
+        viol_id = inserted['id'] if inserted and 'id' in inserted else None
+        # Insert audit record
+        try:
+            details = json.dumps({'violation_name': violation_name, 'lesson_name': lesson_name, 'period': period})
+            cursor.execute('INSERT INTO violation_audit (violation_id, action, user_id, username, details) VALUES (%s,%s,%s,%s,%s)', (viol_id, 'create', current_user.id, getattr(current_user, 'username', None), details))
+        except Exception:
+            pass
+
+        conn.commit()
+        flash('Violation assigned successfully', 'success')
+        return redirect(request.referrer or url_for('staff_violations'))
+    except Exception as e:
+        try:
+            conn.rollback()
+        except:
+            pass
+        flash(f'Error assigning violation: {str(e)}', 'danger')
+        return redirect(request.referrer or url_for('staff_violations'))
+
 @app.route('/teacher/dashboard', methods=['GET', 'POST'])
 @login_required
 def teacher_dashboard():
@@ -673,6 +959,180 @@ def admin_attendance():
         records = []
     
     return render_template('admin_attendance.html', records=records, today=selected_date)
+
+
+@app.route('/admin/violations')
+@login_required
+def admin_violations():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 25, type=int)
+
+        # filters
+        student_id = request.args.get('student_id', type=int)
+        class_id = request.args.get('class_id', type=int)
+
+        where = []
+        params = []
+        if student_id:
+            where.append('v.student_id = %s')
+            params.append(student_id)
+        if class_id:
+            where.append('v.class_id = %s')
+            params.append(class_id)
+
+        where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+
+        # total
+        cursor.execute(f"SELECT COUNT(*) as cnt FROM violation v {where_sql}", tuple(params))
+        total = cursor.fetchone()['cnt'] if cursor.rowcount != 0 else 0
+
+        offset = (page - 1) * per_page
+        cursor.execute(
+            f"SELECT v.*, s.name as student_name, c.name as class_name, u.username as staff_username, u.name as staff_name FROM violation v LEFT JOIN student s ON v.student_id = s.id LEFT JOIN school_class c ON v.class_id = c.id LEFT JOIN \"user\" u ON v.staff_id = u.id {where_sql} ORDER BY v.created_at DESC LIMIT %s OFFSET %s",
+            tuple(params) + (per_page, offset)
+        )
+        rows = cursor.fetchall()
+        violations = [RowObject(dict(r)) for r in rows]
+
+        pagination = {'page': page, 'per_page': per_page, 'total': total, 'pages': (total + per_page - 1) // per_page if per_page else 1}
+
+        return render_template('admin_violations.html', violations=violations, pagination=pagination)
+    except Exception as e:
+        print(f"Error loading admin violations: {e}")
+        flash('Error loading violations', 'danger')
+        return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/violation_audit')
+@login_required
+def admin_violation_audit():
+        if current_user.role != 'admin':
+            flash('Unauthorized', 'danger')
+            return redirect(url_for('index'))
+
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 25, type=int)
+
+            cursor.execute('SELECT COUNT(*) as cnt FROM violation_audit')
+            total = cursor.fetchone()['cnt'] if cursor.rowcount else 0
+            offset = (page - 1) * per_page
+
+            cursor.execute('SELECT va.*, u.username as user_username FROM violation_audit va LEFT JOIN "user" u ON va.user_id = u.id ORDER BY va.created_at DESC LIMIT %s OFFSET %s', (per_page, offset))
+            rows = cursor.fetchall()
+            audits = [RowObject(dict(r)) for r in rows]
+
+            pagination = {'page': page, 'per_page': per_page, 'total': total, 'pages': (total + per_page - 1) // per_page if per_page else 1}
+
+            return render_template('admin_violation_audit.html', audits=audits, pagination=pagination)
+        except Exception as e:
+            print(f"Error loading audit logs: {e}")
+            flash('Error loading audit logs', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/violations/<int:viol_id>/edit', methods=['GET', 'POST'])
+@login_required
+def admin_edit_violation(viol_id):
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    conn = get_db()
+    cursor = conn.cursor()
+    if request.method == 'POST':
+        # CSRF
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token', 'danger')
+            return redirect(url_for('admin_violations'))
+        try:
+            violation_name = request.form.get('violation_name')
+            lesson_name = request.form.get('lesson_name')
+            period = request.form.get('period')
+            statement_of_receipt = request.form.get('statement_of_receipt')
+            parental_consent = request.form.get('parental_consent')
+            referral = request.form.get('referral')
+
+            # basic validation
+            if parental_consent and parental_consent not in ('consent','refusal'):
+                flash('Invalid parental consent value', 'danger')
+                return redirect(url_for('admin_edit_violation', viol_id=viol_id))
+
+            # record old values
+            cursor.execute('SELECT * FROM violation WHERE id = %s', (viol_id,))
+            old = cursor.fetchone()
+
+            cursor.execute("""
+                UPDATE violation SET violation_name = %s, lesson_name = %s, period = %s, statement_of_receipt = %s, parental_consent = %s, referral = %s WHERE id = %s
+            """, (violation_name, lesson_name, int(period) if period else None, statement_of_receipt, parental_consent, referral, viol_id))
+            # insert audit record describing changes
+            try:
+                new = {'violation_name': violation_name, 'lesson_name': lesson_name, 'period': period, 'statement_of_receipt': statement_of_receipt, 'parental_consent': parental_consent, 'referral': referral}
+                details = {'old': dict(old) if old else {}, 'new': new}
+                cursor.execute('INSERT INTO violation_audit (violation_id, action, user_id, username, details) VALUES (%s,%s,%s,%s,%s)', (viol_id, 'edit', current_user.id, getattr(current_user,'username',None), json.dumps(details)))
+            except Exception:
+                pass
+
+            conn.commit()
+            flash('Violation updated', 'success')
+            return redirect(url_for('admin_violations'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error updating violation: {e}', 'danger')
+
+    # GET
+    cursor.execute('SELECT * FROM violation WHERE id = %s', (viol_id,))
+    row = cursor.fetchone()
+    if not row:
+        flash('Violation not found', 'warning')
+        return redirect(url_for('admin_violations'))
+    viol = RowObject(dict(row))
+    return render_template('admin_violation_form.html', viol=viol)
+
+
+@app.route('/admin/violations/<int:viol_id>/delete', methods=['POST'])
+@login_required
+def admin_delete_violation(viol_id):
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    # CSRF
+    token = request.form.get('csrf_token')
+    if not validate_csrf(token):
+        flash('Invalid CSRF token', 'danger')
+        return redirect(url_for('admin_violations'))
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        # fetch row for audit
+        cursor.execute('SELECT * FROM violation WHERE id = %s', (viol_id,))
+        row = cursor.fetchone()
+        try:
+            cursor.execute('INSERT INTO violation_audit (violation_id, action, user_id, username, details) VALUES (%s,%s,%s,%s,%s)', (viol_id, 'delete', current_user.id, getattr(current_user,'username',None), json.dumps({'old': dict(row) if row else {}})))
+        except Exception:
+            pass
+        cursor.execute('DELETE FROM violation WHERE id = %s', (viol_id,))
+        conn.commit()
+        flash('Violation deleted', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error deleting violation: {e}', 'danger')
+
+    return redirect(url_for('admin_violations'))
 
 # ================ User Management Routes ================
 
