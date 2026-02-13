@@ -1071,6 +1071,93 @@ def admin_violations():
         return redirect(url_for('admin_dashboard'))
 
 
+@app.route('/admin/violations/export_xlsx')
+@login_required
+def admin_export_violations_xlsx():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT v.*, s.name as student_name, s.roll_number as student_roll_number, c.name as class_name, u.username as staff_username
+            FROM violation v
+            LEFT JOIN student s ON v.student_id = s.id
+            LEFT JOIN school_class c ON v.class_id = c.id
+            LEFT JOIN "user" u ON v.staff_id = u.id
+            ORDER BY COALESCE(c.name, ''), v.created_at
+            """
+        )
+        rows = cursor.fetchall()
+
+        grouped = {}
+        for r in rows:
+            cls = r.get('class_name') or 'Unassigned'
+            grouped.setdefault(cls, []).append(r)
+
+        wb = Workbook()
+        # remove default sheet
+        try:
+            wb.remove(wb.active)
+        except Exception:
+            pass
+
+        def safe_sheet_name(name):
+            bad = '[]:*?/\\'
+            for ch in bad:
+                name = name.replace(ch, '-')
+            return name[:31] or 'Sheet'
+
+        headers = ['ID','Student','Student National ID','Violation','Lesson','Period','Date','Recorded At','By','Statement','Parental Consent','Referral']
+        from datetime import datetime, date, time
+        def _norm(v):
+            if isinstance(v, (datetime, date, time)):
+                try:
+                    return v.isoformat()
+                except Exception:
+                    return str(v)
+            return v
+
+        for cls_name, items in grouped.items():
+            sheet = wb.create_sheet(title=safe_sheet_name(cls_name))
+            sheet.append([cls_name])
+            sheet.append(headers)
+            for r in items:
+                sheet.append([
+                    _norm(r.get('id')),
+                    _norm(r.get('student_name') or r.get('student_id')),
+                    _norm(r.get('student_roll_number')),
+                    _norm(r.get('violation_name')),
+                    _norm(r.get('lesson_name')),
+                    _norm(r.get('period')),
+                    _norm(r.get('date')),
+                    _norm(r.get('created_at')),
+                    _norm(r.get('staff_username')),
+                    _norm(r.get('statement_of_receipt')),
+                    _norm(r.get('parental_consent')),
+                    _norm(r.get('referral')),
+                ])
+
+        bio = BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name='violations_by_class.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception:
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            with open('/tmp/admin_violations_export_trace.log','a') as fh:
+                fh.write('\n---\n')
+                fh.write(tb)
+        except Exception:
+            pass
+        flash('Error exporting violations', 'danger')
+        return redirect(url_for('admin_violations'))
+
+
 @app.route('/admin/violation_audit')
 @login_required
 def admin_violation_audit():
