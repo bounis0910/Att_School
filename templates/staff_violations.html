@@ -1,6 +1,6 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h3>Staff Violations</h3>
+<h3>Staff Violationsss</h3>
 <div class="mb-3">
   <a class="btn btn-secondary" href="{{ url_for('staff_dashboard') }}">Back to Dashboard</a>
 </div>
@@ -141,12 +141,30 @@
 
                   <div class="mb-2">
                     <label class="form-label">Violation Name</label>
+                    {% if violation_types %}
+                    <select name="violation_name" class="form-select form-select-sm" required>
+                      <option value="">-- Select Violation --</option>
+                      {% for vt in violation_types %}
+                        <option value="{{ vt.name }}">{{ vt.name }}</option>
+                      {% endfor %}
+                    </select>
+                    {% else %}
                     <input name="violation_name" class="form-control form-control-sm" required />
+                    {% endif %}
                   </div>
 
                   <div class="mb-2">
                     <label class="form-label">Lesson Name</label>
+                    {% if subjects %}
+                    <select name="lesson_name" class="form-select form-select-sm">
+                      <option value="">-- Select Lesson --</option>
+                      {% for subj in subjects %}
+                        <option value="{{ subj.name }}">{{ subj.name }}</option>
+                      {% endfor %}
+                    </select>
+                    {% else %}
                     <input name="lesson_name" class="form-control form-control-sm" />
+                    {% endif %}
                   </div>
 
                   <div class="mb-2">

@@ -1,0 +1,57 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>{% if type %}Edit{% else %}Create{% endif %} Violation Type</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('admin_violation_types') }}">Back to Types</a>
+  <a class="btn btn-secondary" href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <div class="mb-3">
+        <label class="form-label">Name</label>
+        <input name="name" class="form-control" value="{{ type.name if type else '' }}" required />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+          <option value="active" {% if type and type.status=='active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if type and type.status=='inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">{% if type %}Update{% else %}Create{% endif %}</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Edit Violation Type</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('admin_violation_types') }}">Back to Types</a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('admin_violation_type_edit', vt_id=vt.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <div class="mb-3">
+        <label class="form-label">Name</label>
+        <input name="name" value="{{ vt.name }}" class="form-control" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+          <option value="active" {% if vt.status == 'active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if vt.status == 'inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+      <button class="btn btn-primary">Save</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

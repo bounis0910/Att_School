@@ -105,6 +105,12 @@ def validate_csrf(token):
 def inject_csrf_token():
     return dict(csrf_token=_generate_csrf_token)
 
+
+@app.context_processor
+def inject_now():
+    # Provide a `now()` callable to templates that returns current date string
+    return dict(now=lambda: get_current_date().strftime('%Y-%m-%d'))
+
 @app.teardown_appcontext
 def close_db(exc):
     db_conn = getattr(g, '_database', None)
@@ -151,6 +157,8 @@ def load_user(user_id):
     try:
         conn = get_db()
         cursor = conn.cursor()
+        # Prepare container for violation types
+        violation_types = []
         cursor.execute('SELECT * FROM "user" WHERE id = %s', (int(user_id),))
         row = cursor.fetchone()
         if row:
@@ -483,6 +491,33 @@ def staff_violations():
             )
         """)
 
+        # Ensure a separate table exists to manage the list of violation names (types)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS violation_type (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                status VARCHAR(32) NOT NULL DEFAULT 'active',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Fetch active violation types for the staff assignment form
+        try:
+            cursor.execute("SELECT id, name FROM violation_type WHERE status = %s ORDER BY name", ('active',))
+            vt_rows = cursor.fetchall()
+            violation_types = [RowObject(dict(r)) for r in vt_rows]
+        except Exception:
+            violation_types = []
+
+        # Fetch subjects for lesson selection
+        try:
+            cursor.execute("SELECT id, name FROM subject ORDER BY name")
+            subj_rows = cursor.fetchall()
+            subjects = [RowObject(dict(r)) for r in subj_rows]
+        except Exception:
+            subjects = []
+
         # Build data: for each class fetch students and their violations
         classes_data = []
         for cls in classes:
@@ -495,13 +530,25 @@ def staff_violations():
             periods_rows_cls = cursor.fetchall()
             periods_for_class = [RowObject(dict(r)) for r in periods_rows_cls]
 
+            # If no class-specific periods are defined, fall back to day-of-week periods (global)
+            if not periods_for_class:
+                try:
+                    from datetime import datetime
+                    day_of_week = datetime.now().weekday()
+                    day_of_week = (day_of_week + 1) % 7
+                    cursor.execute("SELECT * FROM period WHERE day_of_week = %s ORDER BY period_num", (day_of_week,))
+                    fallback_rows = cursor.fetchall()
+                    periods_for_class = [RowObject(dict(r)) for r in fallback_rows]
+                except Exception:
+                    periods_for_class = []
+
             # fetch violations for students in this class (include staff info)
             student_ids = [s.id for s in students]
             violations_by_student = {}
             if student_ids:
                 placeholders = ','.join(['%s'] * len(student_ids))
                 cursor.execute(
-                    f"SELECT v.*, u.username as staff_username, u.name as staff_name "
+                    f"SELECT v.*, u.username as staff_username, u.username as staff_name "
                     f"FROM violation v LEFT JOIN \"user\" u ON v.staff_id = u.id "
                     f"WHERE v.student_id IN ({placeholders}) ORDER BY v.created_at DESC",
                     student_ids
@@ -555,7 +602,7 @@ def staff_violations():
 
         offset = (page - 1) * per_page
         select_sql = (
-            f"SELECT v.*, s.name as student_name, c.name as class_name, u.username as staff_username, u.name as staff_name "
+            f"SELECT v.*, s.name as student_name, c.name as class_name, u.username as staff_username, u.username as staff_name "
             f"FROM violation v LEFT JOIN student s ON v.student_id = s.id LEFT JOIN school_class c ON v.class_id = c.id LEFT JOIN \"user\" u ON v.staff_id = u.id {where_sql} "
             f"ORDER BY v.created_at DESC LIMIT %s OFFSET %s"
         )
@@ -571,7 +618,7 @@ def staff_violations():
             'pages': (total + per_page - 1) // per_page if per_page else 1
         }
 
-        return render_template('staff_violations.html', classes_data=classes_data, paged_violations=paged_violations, pagination=pagination, filter_class=filter_class, filter_student=filter_student, start_date=start_date, end_date=end_date)
+        return render_template('staff_violations.html', classes_data=classes_data, paged_violations=paged_violations, pagination=pagination, filter_class=filter_class, filter_student=filter_student, start_date=start_date, end_date=end_date, violation_types=violation_types, subjects=subjects)
 
     except Exception as e:
         import traceback, os
@@ -996,7 +1043,7 @@ def admin_violations():
 
         offset = (page - 1) * per_page
         cursor.execute(
-            f"SELECT v.*, s.name as student_name, c.name as class_name, u.username as staff_username, u.name as staff_name FROM violation v LEFT JOIN student s ON v.student_id = s.id LEFT JOIN school_class c ON v.class_id = c.id LEFT JOIN \"user\" u ON v.staff_id = u.id {where_sql} ORDER BY v.created_at DESC LIMIT %s OFFSET %s",
+            f"SELECT v.*, s.name as student_name, c.name as class_name, u.username as staff_username, u.username as staff_name FROM violation v LEFT JOIN student s ON v.student_id = s.id LEFT JOIN school_class c ON v.class_id = c.id LEFT JOIN \"user\" u ON v.staff_id = u.id {where_sql} ORDER BY v.created_at DESC LIMIT %s OFFSET %s",
             tuple(params) + (per_page, offset)
         )
         rows = cursor.fetchall()
@@ -1006,7 +1053,20 @@ def admin_violations():
 
         return render_template('admin_violations.html', violations=violations, pagination=pagination)
     except Exception as e:
-        print(f"Error loading admin violations: {e}")
+        import traceback
+        tb = traceback.format_exc()
+        print(f"Error loading admin violations: {e}\n{tb}")
+        try:
+            with open('/tmp/admin_violations_trace.log','a') as fh:
+                fh.write('\n---\n')
+                fh.write(tb)
+        except Exception:
+            pass
+
+        # show traceback inline to admins for debugging
+        if current_user.is_authenticated and getattr(current_user, 'role', None) == 'admin':
+            return render_template('admin_violations_error.html', error=tb), 500
+
         flash('Error loading violations', 'danger')
         return redirect(url_for('admin_dashboard'))
 
@@ -1040,6 +1100,155 @@ def admin_violation_audit():
             print(f"Error loading audit logs: {e}")
             flash('Error loading audit logs', 'danger')
             return redirect(url_for('admin_dashboard'))
+
+# ================ Violation Types (Admin CRUD) ================
+@app.route('/admin/violation_types')
+@login_required
+def admin_violation_types():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        # ensure table exists
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS violation_type (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                status VARCHAR(32) NOT NULL DEFAULT 'active',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+
+        cursor.execute('SELECT id, name, status, created_at, updated_at FROM violation_type ORDER BY name')
+        rows = cursor.fetchall()
+        types = [RowObject(dict(r)) for r in rows]
+        return render_template('admin_violation_types.html', types=types)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"Error loading violation types: {e}\n{tb}")
+        try:
+            with open('/tmp/admin_violation_types_trace.log', 'a') as fh:
+                fh.write('\n---\n')
+                fh.write(tb)
+        except Exception:
+            pass
+        flash('Error loading violation types', 'danger')
+        # If admin, show traceback inline to help debugging
+        if current_user.is_authenticated and getattr(current_user, 'role', None) == 'admin':
+            return render_template('admin_violations_error.html', error=tb), 500
+        return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/violation_types/create', methods=['GET', 'POST'])
+@login_required
+def admin_violation_type_create():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    conn = get_db()
+    cursor = conn.cursor()
+    # ensure table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS violation_type (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            status VARCHAR(32) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
+    if request.method == 'POST':
+        name = (request.form.get('name') or '').strip()
+        status = request.form.get('status') or 'active'
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token', 'danger')
+            return redirect(url_for('admin_violation_types'))
+        if not name:
+            flash('Name is required', 'danger')
+            return render_template('admin_violation_type_form.html', type=None)
+        try:
+            cursor.execute('INSERT INTO violation_type (name, status) VALUES (%s,%s) RETURNING id', (name, status))
+            conn.commit()
+            flash('Violation type created', 'success')
+            return redirect(url_for('admin_violation_types'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error creating type: {e}', 'danger')
+            return render_template('admin_violation_type_form.html', type=None)
+    return render_template('admin_violation_type_form.html', type=None)
+
+
+@app.route('/admin/violation_types/<int:vt_id>/edit', methods=['GET', 'POST'])
+@login_required
+def admin_violation_type_edit(vt_id):
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    conn = get_db()
+    cursor = conn.cursor()
+    # ensure table exists
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS violation_type (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            status VARCHAR(32) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
+    if request.method == 'POST':
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token', 'danger')
+            return redirect(url_for('admin_violation_types'))
+        name = (request.form.get('name') or '').strip()
+        status = request.form.get('status') or 'active'
+        if not name:
+            flash('Name is required', 'danger')
+            return redirect(url_for('admin_violation_type_edit', vt_id=vt_id))
+        try:
+            cursor.execute('UPDATE violation_type SET name=%s, status=%s, updated_at=NOW() WHERE id=%s', (name, status, vt_id))
+            conn.commit()
+            flash('Violation type updated', 'success')
+            return redirect(url_for('admin_violation_types'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error updating type: {e}', 'danger')
+    # GET
+    cursor.execute('SELECT * FROM violation_type WHERE id = %s', (vt_id,))
+    row = cursor.fetchone()
+    if not row:
+        flash('Violation type not found', 'warning')
+        return redirect(url_for('admin_violation_types'))
+    vt = RowObject(dict(row))
+    return render_template('admin_violation_type_form.html', type=vt)
+
+
+@app.route('/admin/violation_types/<int:vt_id>/delete', methods=['POST'])
+@login_required
+def admin_violation_type_delete(vt_id):
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    token = request.form.get('csrf_token')
+    if not validate_csrf(token):
+        flash('Invalid CSRF token', 'danger')
+        return redirect(url_for('admin_violation_types'))
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM violation_type WHERE id = %s', (vt_id,))
+        conn.commit()
+        flash('Violation type deleted', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error deleting type: {e}', 'danger')
+    return redirect(url_for('admin_violation_types'))
 
 
 @app.route('/admin/violations/<int:viol_id>/edit', methods=['GET', 'POST'])
