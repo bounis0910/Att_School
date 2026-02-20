@@ -1,0 +1,45 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Student Performance Records</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('admin_dashboard') }}">Back</a>
+</div>
+<div class="card">
+  <div class="card-body">
+    {% if items %}
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Week #</th>
+            <th>Year</th>
+            <th>Student</th>
+            <th>Class</th>
+            <th>Teacher</th>
+            <th>Level</th>
+            <th>Comment</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td>{{ it.week_number }}</td>
+            <td>{{ it.year }}</td>
+            <td>{{ it.student_name or ('#'+(it.student_id|string)) }}</td>
+            <td>{{ it.class_name or '' }}</td>
+            <td>{{ it.teacher_name or '' }}</td>
+            <td>{{ it.level_name or '' }}</td>
+            <td>{{ it.comment or '' }}</td>
+            <td>{{ it.status or '' }}</td>
+            <td>{{ it.created_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-muted">No performance records found.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1230,6 +1230,403 @@ def admin_violation_types():
         return redirect(url_for('admin_dashboard'))
 
 
+@app.route('/admin/performance_levels')
+@login_required
+def admin_performance_levels():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS performance_level (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                status VARCHAR(32) NOT NULL DEFAULT 'active',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+        cursor.execute('SELECT id, name, status, created_at, updated_at FROM performance_level ORDER BY name')
+        rows = cursor.fetchall()
+        types = [RowObject(dict(r)) for r in rows]
+        return render_template('admin_performance_levels.html', types=types)
+    except Exception as e:
+        tb = traceback.format_exc()
+        try:
+            with open('/tmp/admin_performance_levels_trace.log','a') as fh:
+                fh.write('\n---\n')
+                fh.write(tb)
+        except Exception:
+            pass
+        flash('Error loading performance levels', 'danger')
+        return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/performance_levels/create', methods=['GET','POST'])
+@login_required
+def admin_performance_level_create():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    conn = get_db(); cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS performance_level (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            status VARCHAR(32) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
+    if request.method == 'POST':
+        name = (request.form.get('name') or '').strip()
+        status = request.form.get('status') or 'active'
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token', 'danger')
+            return redirect(url_for('admin_performance_levels'))
+        if not name:
+            flash('Name required', 'danger')
+            return render_template('admin_performance_level_form.html', type=None)
+        try:
+            cursor.execute('INSERT INTO performance_level (name, status) VALUES (%s,%s) RETURNING id', (name,status))
+            conn.commit()
+            flash('Performance level created','success')
+            return redirect(url_for('admin_performance_levels'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error creating level: {e}','danger')
+            return render_template('admin_performance_level_form.html', type=None)
+    return render_template('admin_performance_level_form.html', type=None)
+
+
+@app.route('/admin/performance_levels/<int:pid>/edit', methods=['GET','POST'])
+@login_required
+def admin_performance_level_edit(pid):
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    conn = get_db(); cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS performance_level (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            status VARCHAR(32) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
+    if request.method == 'POST':
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token', 'danger')
+            return redirect(url_for('admin_performance_levels'))
+        name = (request.form.get('name') or '').strip()
+        status = request.form.get('status') or 'active'
+        if not name:
+            flash('Name required','danger')
+            return redirect(url_for('admin_performance_level_edit', pid=pid))
+        try:
+            cursor.execute('UPDATE performance_level SET name=%s, status=%s, updated_at=NOW() WHERE id=%s', (name,status,pid))
+            conn.commit()
+            flash('Updated','success')
+            return redirect(url_for('admin_performance_levels'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error updating: {e}','danger')
+    cursor.execute('SELECT * FROM performance_level WHERE id=%s',(pid,))
+    row = cursor.fetchone()
+    if not row:
+        flash('Not found','warning'); return redirect(url_for('admin_performance_levels'))
+    return render_template('admin_performance_level_form.html', type=RowObject(dict(row)))
+
+
+@app.route('/admin/performance_levels/<int:pid>/delete', methods=['POST'])
+@login_required
+def admin_performance_level_delete(pid):
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    token = request.form.get('csrf_token')
+    if not validate_csrf(token):
+        flash('Invalid CSRF token', 'danger')
+        return redirect(url_for('admin_performance_levels'))
+    try:
+        conn = get_db(); cursor = conn.cursor()
+        # Trace incoming form for debugging
+        try:
+            with open('/tmp/admin_performance_assign_trace.log','a') as fh:
+                fh.write('\n--- POST /teacher/assign_performance ---\n')
+                for k, v in request.form.items():
+                    fh.write(f"{k}={v}\n")
+                fh.write('lists:\n')
+                for k in request.form.keys():
+                    vals = request.form.getlist(k)
+                    if len(vals) > 1:
+                        fh.write(f"{k} -> {vals}\n")
+        except Exception:
+            pass
+        cursor.execute('DELETE FROM performance_level WHERE id=%s',(pid,))
+        conn.commit()
+        flash('Deleted','success')
+    except Exception as e:
+        conn.rollback(); flash(f'Error deleting: {e}','danger')
+    return redirect(url_for('admin_performance_levels'))
+
+
+@app.route('/admin/performance')
+@login_required
+def admin_performance_list():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        conn = get_db(); cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS performance (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                class_id INTEGER,
+                teacher_id INTEGER,
+                week_number INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                level_id INTEGER,
+                level_name TEXT,
+                comment TEXT,
+                status VARCHAR(32) DEFAULT 'active',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+        cursor.execute('SELECT p.*, s.name as student_name, c.name as class_name, u.username as teacher_name FROM performance p LEFT JOIN student s ON p.student_id = s.id LEFT JOIN school_class c ON p.class_id = c.id LEFT JOIN "user" u ON p.teacher_id = u.id ORDER BY p.year DESC, p.week_number DESC LIMIT 500')
+        rows = cursor.fetchall(); items = [RowObject(dict(r)) for r in rows]
+        return render_template('admin_performance.html', items=items)
+    except Exception as e:
+        tb = traceback.format_exc(); print(tb)
+        flash('Error loading performance','danger'); return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/teacher/assign_performance', methods=['GET','POST'])
+@login_required
+def teacher_assign_performance():
+    if current_user.role != 'teacher':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        # GET: show form
+        if request.method == 'GET':
+            conn = get_db(); cursor = conn.cursor()
+            # Fetch classes assigned to this teacher from the user's `classes` column
+            cursor.execute('SELECT classes FROM "user" WHERE id = %s', (current_user.id,))
+            user_row = cursor.fetchone()
+            classes = []
+            if user_row and user_row.get('classes'):
+                class_ids_str = user_row['classes'].strip()
+                if class_ids_str:
+                    class_ids = [cid.strip() for cid in class_ids_str.split(',') if cid.strip()]
+                    if class_ids:
+                        placeholders = ','.join(['%s'] * len(class_ids))
+                        cursor.execute(f"SELECT id, name FROM school_class WHERE id IN ({placeholders}) ORDER BY name", class_ids)
+                        classes = cursor.fetchall()
+
+            # performance levels
+            # Ensure performance_level table exists (runtime guard)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS performance_level (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            ''')
+            cursor.execute('SELECT id, name FROM performance_level WHERE status = %s ORDER BY name', ('active',))
+            levels = cursor.fetchall()
+            # optional selected class to list students
+            sel_class = request.args.get('class_id')
+            students = []
+            perf_by_student = {}
+            if sel_class:
+                cursor.execute('SELECT id, name, roll_number FROM student WHERE class_id = %s ORDER BY roll_number NULLS LAST, name', (int(sel_class),))
+                students = cursor.fetchall()
+                # Ensure performance table exists (runtime guard) and load existing assignments
+                try:
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS performance (
+                            id SERIAL PRIMARY KEY,
+                            student_id INTEGER,
+                            class_id INTEGER,
+                            teacher_id INTEGER,
+                            week_number INTEGER NOT NULL,
+                            year INTEGER NOT NULL,
+                            level_id INTEGER,
+                            level_name TEXT,
+                            comment TEXT,
+                            status VARCHAR(32) DEFAULT 'active',
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ DEFAULT NOW()
+                        )
+                    ''')
+                except Exception:
+                    pass
+                try:
+                    student_ids = [str(s['id']) for s in students]
+                    perf_by_student = {}
+                    if student_ids:
+                        placeholders = ','.join(['%s'] * len(student_ids))
+                        cursor.execute(f"SELECT * FROM performance WHERE class_id = %s AND week_number = %s AND year = %s AND student_id IN ({placeholders})", tuple([int(sel_class), default_week_number, default_year] + student_ids))
+                        prow = cursor.fetchall()
+                        for pr in prow:
+                            perf_by_student[pr['student_id']] = dict(pr)
+                except Exception:
+                    perf_by_student = {}
+            # default week_number = current ISO week number
+            from datetime import date
+            today = date.today()
+            try:
+                iso = today.isocalendar()
+                default_week_number = iso[1]
+                default_year = iso[0]
+            except Exception:
+                # fallback
+                default_week_number = int(today.strftime('%V')) if hasattr(today, 'strftime') else 1
+                default_year = today.year
+            return render_template('teacher_assign_performance.html', classes=classes, students=students, levels=levels, default_week_number=default_week_number, default_year=default_year, sel_class=sel_class, perf_by_student=perf_by_student)
+
+        # POST: accept single or bulk assignments
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token','danger')
+            return redirect(request.referrer or url_for('teacher_dashboard'))
+
+        conn = get_db(); cursor = conn.cursor()
+        week_number_raw = (request.form.get('week_number') or '').strip()
+        year_raw = (request.form.get('year') or '').strip()
+
+        # Normalize week_number and year into integers. Support cases where week_number
+        # is submitted as a date string (legacy), or as the ISO week number.
+        from datetime import date, datetime
+        try:
+            if week_number_raw and '-' in week_number_raw:
+                # submitted a date (e.g. week_start); convert to ISO week
+                dt = datetime.fromisoformat(week_number_raw).date()
+                week_number = dt.isocalendar()[1]
+                year = dt.isocalendar()[0]
+            else:
+                week_number = int(week_number_raw) if week_number_raw else None
+                year = int(year_raw) if year_raw else None
+        except Exception:
+            # fallback to current week/year
+            today = date.today()
+            iso = today.isocalendar()
+            week_number = iso[1]
+            year = iso[0]
+        class_id = request.form.get('class_id')
+
+        student_ids = request.form.getlist('student_id')
+        # support either repeated student_id or a single value
+        if not student_ids:
+            single_id = request.form.get('student_id')
+            if single_id:
+                student_ids = [single_id]
+
+        if not student_ids or not week_number:
+            flash('Missing fields','danger')
+            return redirect(request.referrer or url_for('teacher_dashboard'))
+
+        # Prefer per-student fields like level_id_<student_id> and comment_<student_id>
+        level_ids = request.form.getlist('level_id')
+        comments = request.form.getlist('comment')
+
+        entries = []
+        for idx, sid in enumerate(student_ids):
+            sid_str = str(sid)
+            # check per-student fields first
+            lid = request.form.get(f'level_id_{sid_str}')
+            comm = request.form.get(f'comment_{sid_str}')
+            # fallback to parallel arrays if per-student missing
+            if not lid:
+                if idx < len(level_ids):
+                    lid = level_ids[idx]
+                else:
+                    lid = ''
+            if comm is None:
+                if idx < len(comments):
+                    comm = comments[idx]
+                else:
+                    comm = ''
+            entries.append((sid, lid, comm))
+
+        inserted = 0
+        skipped = []
+        for sid, lid, comm in entries:
+            if not lid:
+                skipped.append((sid, 'no level'))
+                continue
+            level_name = None
+            lid_int = None
+            # try numeric id first
+            try:
+                lid_int = int(lid)
+            except Exception:
+                lid_int = None
+            try:
+                if lid_int:
+                    cursor.execute('SELECT name FROM performance_level WHERE id=%s', (lid_int,))
+                    lr = cursor.fetchone()
+                    level_name = lr['name'] if lr and 'name' in lr else None
+                else:
+                    # maybe lid contains the level name; try to find id by name
+                    cursor.execute('SELECT id, name FROM performance_level WHERE name = %s LIMIT 1', (lid,))
+                    lr = cursor.fetchone()
+                    if lr and 'id' in lr:
+                        lid_int = lr['id']
+                        level_name = lr['name']
+                    else:
+                        # treat lid as level_name directly
+                        level_name = lid
+
+                if not lid_int and not level_name:
+                    skipped.append((sid, f'invalid level ({lid})'))
+                    continue
+
+                # ensure year/week are ints (computed earlier). Use these normalized values.
+                cursor.execute('INSERT INTO performance (student_id, class_id, teacher_id, week_number, year, level_id, level_name, comment) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', (int(sid), int(class_id) if class_id else None, int(current_user.id), int(week_number), int(year), int(lid_int) if lid_int else None, level_name, comm))
+                inserted += 1
+            except Exception as ex:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                try:
+                    with open('/tmp/admin_performance_assign_trace.log','a') as fh:
+                        fh.write('--- Error inserting performance ---\n')
+                        fh.write(f"student={sid} class_id={class_id} week_number_raw={week_number_raw} year_raw={year_raw} normalized_week={week_number} normalized_year={year} level_in={lid} level_id={lid_int} level_name={level_name} comment={comm}\n")
+                        fh.write(f"Exception: {ex}\n")
+                        # dump full form keys for debugging
+                        try:
+                            for k in request.form.keys():
+                                fh.write(f"FORM {k}={request.form.get(k)}\n")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        if inserted:
+            conn.commit(); flash(f'Assigned performance for {inserted} students','success')
+        else:
+            flash('No performance assignments made','warning')
+        return redirect(request.referrer or url_for('teacher_dashboard'))
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        flash(f'Error assigning performance: {e}','danger')
+        return redirect(request.referrer or url_for('teacher_dashboard'))
+
+
 @app.route('/admin/violation_types/create', methods=['GET', 'POST'])
 @login_required
 def admin_violation_type_create():

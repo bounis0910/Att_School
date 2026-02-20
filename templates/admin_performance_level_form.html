@@ -1,14 +1,12 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h3>{% if type %}Edit{% else %}Create{% endif %} Violation Type</h3>
+<h3>{% if type %}Edit{% else %}Create{% endif %} Performance Level</h3>
 <div class="mb-3">
-  <a class="btn btn-secondary" href="{{ url_for('admin_violation_types') }}">Back to Types</a>
-  <a class="btn btn-secondary" href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+  <a class="btn btn-secondary" href="{{ url_for('admin_performance_levels') }}">Back to Levels</a>
 </div>
-
 <div class="card">
   <div class="card-body">
-    <form method="POST" {% if type %}action="{{ url_for('admin_violation_type_edit', vt_id=type.id) }}"{% endif %}>
+    <form method="POST" {% if type %}action="{{ url_for('admin_performance_level_edit', pid=type.id) }}"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <div class="mb-3">
         <label class="form-label">Name</label>
@@ -25,5 +23,4 @@
     </form>
   </div>
 </div>
-
 {% endblock %}

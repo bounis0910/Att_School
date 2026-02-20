@@ -1,0 +1,81 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Assign Weekly Performance</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('teacher_dashboard') }}">Back</a>
+</div>
+<div class="card">
+  <div class="card-body">
+    <form method="GET" class="mb-3">
+      <label class="form-label">Select Class</label>
+      <div class="input-group mb-3">
+        <select name="class_id" class="form-select">
+          <option value="">-- Select class --</option>
+          {% for c in classes %}
+          <option value="{{ c.id }}" {% if sel_class and sel_class|int==c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Load Students</button>
+      </div>
+      {% if not classes %}
+        <div class="mb-2">
+          <small class="text-muted">No classes assigned to you.</small>
+        </div>
+      {% endif %}
+    </form>
+
+    {% if students %}
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="class_id" value="{{ sel_class }}" />
+      <div class="mb-3">
+        <label class="form-label">Week Number</label>
+        <div class="row">
+          <div class="col-4">
+            <input name="week_number" class="form-control" value="{{ default_week_number }}" />
+          </div>
+          <div class="col-4">
+            <input name="year" class="form-control" value="{{ default_year }}" />
+          </div>
+        </div>
+      </div>
+      <table class="table table-sm">
+        <thead><tr><th>#</th><th>Student</th><th>Level</th><th>Comment</th></tr></thead>
+        <tbody>
+            {% for s in students %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ s.name }} {% if s.roll_number %}({{ s.roll_number }}){% endif %}</td>
+            <td>
+              <input type="hidden" name="student_id" value="{{ s.id }}" />
+                {% set p = perf_by_student.get(s.id) if perf_by_student else None %}
+                {% if levels and levels|length > 0 %}
+                <select name="level_id_{{ s.id }}" class="form-select">
+                  <option value="">--</option>
+                  {% for l in levels %}
+                  <option value="{{ l.id }}" {% if p and p.level_id and p.level_id==l.id %}selected{% endif %}>{{ l.name }}</option>
+                  {% endfor %}
+                </select>
+                {% else %}
+                <select class="form-select" disabled>
+                  <option>No performance levels defined</option>
+                </select>
+                {% endif %}
+            </td>
+              <td><input name="comment_{{ s.id }}" class="form-control" value="{% if p and p.comment %}{{ p.comment }}{% endif %}" /></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+        {% if levels and levels|length > 0 %}
+        <button class="btn btn-primary" type="submit">Assign for Selected Students</button>
+        {% else %}
+        <div class="alert alert-warning">No performance levels available. Ask an administrator to create levels: <a href="{{ url_for('admin_performance_levels') }}">Manage Performance Levels</a></div>
+        {% endif %}
+    </form>
+    {% else %}
+      <p class="text-muted">Select a class to load its students.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
