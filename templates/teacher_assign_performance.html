@@ -51,7 +51,7 @@
                 {% set p = perf_by_student.get(s.id) if perf_by_student else None %}
                 {% if levels and levels|length > 0 %}
                 <select name="level_id_{{ s.id }}" class="form-select">
-                  <option value="">--</option>
+                  <option value="">---</option>
                   {% for l in levels %}
                   <option value="{{ l.id }}" {% if p and p.level_id and p.level_id==l.id %}selected{% endif %}>{{ l.name }}</option>
                   {% endfor %}

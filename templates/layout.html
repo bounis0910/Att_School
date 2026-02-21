@@ -24,8 +24,7 @@
             <li class="nav-item">
               <a class="btn btn-warning" href="/attendance">تسجيل الحضور/الحصة</a>
               <a class="btn btn-outline-danger" href="/public-daily-attendance">تسجيل الحضور اليومي</a>
-            {% if current_user.is_authenticated and current_user.role=='admin1'
-            %}
+            {% if current_user.is_authenticated and (current_user.role=='admin' or current_user.role=='admin1') %}
             <li class="nav-item dropdown">
               <a
                 class="nav-link dropdown-toggle"
@@ -52,6 +51,12 @@
                     >Manage Periods</a
                   >
                 </li>
+                <li>
+                  <a class="dropdown-item" href="{{ url_for('admin_performance_levels') }}">Manage Performance Levels</a>
+                </li>
+                <li>
+                  <a class="dropdown-item" href="{{ url_for('admin_performance') }}">Weekly Performance</a>
+                </li>
               </ul>
             </li>
             {% else %}
@@ -62,11 +67,15 @@
             <li class="nav-item">
               <a class="nav-link" href="/staff/login">المشرف</a>
             </li>
-            <!--
+            {% if current_user.is_authenticated and current_user.role=='teacher' %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('teacher_assign_performance') }}">Assign Performance</a>
+            </li>
+            {% else %}
             <li class="nav-item">
               <a class="nav-link" href="/teacher/login">المدرس</a>
             </li>
-          -->
+            {% endif %}
           </ul>
         </div>
       </div>

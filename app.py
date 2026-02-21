@@ -669,6 +669,11 @@ def staff_assign_violation():
     try:
         student_id = request.form.get('student_id')
         class_id = request.form.get('class_id')
+
+        # require class selection
+        if not class_id:
+            flash('Please select a class before assigning performance','danger')
+            return redirect(request.referrer or url_for('teacher_assign_performance'))
         date_val = request.form.get('date')
         violation_name = request.form.get('violation_name')
         lesson_name = request.form.get('lesson_name')
@@ -1208,7 +1213,6 @@ def admin_violation_types():
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         ''')
-
         cursor.execute('SELECT id, name, status, created_at, updated_at FROM violation_type ORDER BY name')
         rows = cursor.fetchall()
         types = [RowObject(dict(r)) for r in rows]
@@ -1253,6 +1257,7 @@ def admin_performance_levels():
         types = [RowObject(dict(r)) for r in rows]
         return render_template('admin_performance_levels.html', types=types)
     except Exception as e:
+        import traceback
         tb = traceback.format_exc()
         try:
             with open('/tmp/admin_performance_levels_trace.log','a') as fh:
@@ -1260,8 +1265,123 @@ def admin_performance_levels():
                 fh.write(tb)
         except Exception:
             pass
+        print(f"Error loading performance levels: {e}")
         flash('Error loading performance levels', 'danger')
         return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/performance', methods=['GET'])
+@login_required
+def admin_performance():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    conn = get_db(); cursor = conn.cursor()
+    # ensure performance table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS performance (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER,
+            class_id INTEGER,
+            teacher_id INTEGER,
+            week_number INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            level_id INTEGER,
+            level_name TEXT,
+            comment TEXT,
+            status VARCHAR(32) DEFAULT 'active',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
+
+    # filter by year/week optional
+    year = request.args.get('year', type=int)
+    week = request.args.get('week', type=int)
+
+    params = []
+    where = ''
+    if year:
+        where += ' AND p.year = %s'
+        params.append(year)
+    if week:
+        where += ' AND p.week_number = %s'
+        params.append(week)
+
+    # fetch grouped by week_number, year, teacher
+    sql = (
+        "SELECT p.year, p.week_number, p.teacher_id, u.username as teacher_name, c.name as class_name, s.name as student_name, p.level_name, p.comment "
+        "FROM performance p LEFT JOIN \"user\" u ON p.teacher_id = u.id LEFT JOIN school_class c ON p.class_id = c.id LEFT JOIN student s ON p.student_id = s.id "
+        f"WHERE 1=1 {where} ORDER BY p.year DESC, p.week_number DESC, u.username, c.name, s.name LIMIT 2000"
+    )
+    cursor.execute(sql, tuple(params))
+    rows = cursor.fetchall()
+
+    # organize by (year, week)
+    grouped = {}
+    for r in rows:
+        key = (r['year'], r['week_number'])
+        grouped.setdefault(key, []).append(RowObject(dict(r)))
+
+    return render_template('admin_performance.html', grouped=grouped, rows=rows)
+
+
+@app.route('/admin/performance/export', methods=['GET'])
+@login_required
+def admin_performance_export():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+
+    conn = get_db(); cursor = conn.cursor()
+    year = request.args.get('year', type=int)
+    week = request.args.get('week', type=int)
+
+    params = []
+    where = ''
+    fname_suffix = 'all_weeks'
+    if year:
+        where += ' AND p.year = %s'
+        params.append(year)
+        fname_suffix = f'Y{year}'
+    if week:
+        where += ' AND p.week_number = %s'
+        params.append(week)
+        fname_suffix = f'W{week}_' + fname_suffix
+
+    sql = (
+        "SELECT p.year, p.week_number, u.username as teacher_name, c.name as class_name, s.name as student_name, p.level_name, p.comment "
+        "FROM performance p LEFT JOIN \"user\" u ON p.teacher_id = u.id LEFT JOIN school_class c ON p.class_id = c.id LEFT JOIN student s ON p.student_id = s.id "
+        f"WHERE 1=1 {where} ORDER BY p.year DESC, p.week_number DESC, u.username, c.name, s.name"
+    )
+    cursor.execute(sql, tuple(params))
+    rows = cursor.fetchall()
+
+    # create workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Performance'
+    headers = ['Year','Week','Teacher','Class','Student','Level','Comment']
+    for col, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col)
+        cell.value = h
+
+    r = 2
+    for row in rows:
+        ws.cell(row=r, column=1).value = row['year']
+        ws.cell(row=r, column=2).value = row['week_number']
+        ws.cell(row=r, column=3).value = row.get('teacher_name')
+        ws.cell(row=r, column=4).value = row.get('class_name')
+        ws.cell(row=r, column=5).value = row.get('student_name')
+        ws.cell(row=r, column=6).value = row.get('level_name')
+        ws.cell(row=r, column=7).value = row.get('comment')
+        r += 1
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f'performance_{fname_suffix}.xlsx'
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=filename)
 
 
 @app.route('/admin/performance_levels/create', methods=['GET','POST'])
@@ -1355,6 +1475,30 @@ def admin_performance_level_delete(pid):
         return redirect(url_for('admin_performance_levels'))
     try:
         conn = get_db(); cursor = conn.cursor()
+        # ensure performance table and unique index exist before INSERT with ON CONFLICT
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS performance (
+                    id SERIAL PRIMARY KEY,
+                    student_id INTEGER,
+                    class_id INTEGER,
+                    teacher_id INTEGER,
+                    week_number INTEGER NOT NULL,
+                    year INTEGER NOT NULL,
+                    level_id INTEGER,
+                    level_name TEXT,
+                    comment TEXT,
+                    status VARCHAR(32) DEFAULT 'active',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            ''')
+        except Exception:
+            pass
+        try:
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS performance_unique_idx ON performance (student_id, teacher_id, week_number)')
+        except Exception:
+            pass
         # Trace incoming form for debugging
         try:
             with open('/tmp/admin_performance_assign_trace.log','a') as fh:
@@ -1400,6 +1544,11 @@ def admin_performance_list():
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         ''')
+        # ensure uniqueness to prevent duplicate records per student/teacher/week
+        try:
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS performance_unique_idx ON performance (student_id, teacher_id, week_number)')
+        except Exception:
+            pass
         cursor.execute('SELECT p.*, s.name as student_name, c.name as class_name, u.username as teacher_name FROM performance p LEFT JOIN student s ON p.student_id = s.id LEFT JOIN school_class c ON p.class_id = c.id LEFT JOIN "user" u ON p.teacher_id = u.id ORDER BY p.year DESC, p.week_number DESC LIMIT 500')
         rows = cursor.fetchall(); items = [RowObject(dict(r)) for r in rows]
         return render_template('admin_performance.html', items=items)
@@ -1451,6 +1600,17 @@ def teacher_assign_performance():
             if sel_class:
                 cursor.execute('SELECT id, name, roll_number FROM student WHERE class_id = %s ORDER BY roll_number NULLS LAST, name', (int(sel_class),))
                 students = cursor.fetchall()
+                # default week_number = current ISO week number (used to load existing assignments)
+                from datetime import date
+                today = date.today()
+                try:
+                    iso = today.isocalendar()
+                    default_week_number = iso[1]
+                    default_year = iso[0]
+                except Exception:
+                    default_week_number = int(today.strftime('%V')) if hasattr(today, 'strftime') else 1
+                    default_year = today.year
+
                 # Ensure performance table exists (runtime guard) and load existing assignments
                 try:
                     cursor.execute('''
@@ -1476,7 +1636,11 @@ def teacher_assign_performance():
                     perf_by_student = {}
                     if student_ids:
                         placeholders = ','.join(['%s'] * len(student_ids))
-                        cursor.execute(f"SELECT * FROM performance WHERE class_id = %s AND week_number = %s AND year = %s AND student_id IN ({placeholders})", tuple([int(sel_class), default_week_number, default_year] + student_ids))
+                        # convert student ids to ints
+                        sid_params = [int(x) for x in student_ids]
+                        # include current teacher id so we restore assignments made by this teacher only
+                        params = [int(sel_class), int(default_week_number), int(default_year), int(current_user.id)] + sid_params
+                        cursor.execute(f"SELECT * FROM performance WHERE class_id = %s AND week_number = %s AND year = %s AND teacher_id = %s AND student_id IN ({placeholders})", tuple(params))
                         prow = cursor.fetchall()
                         for pr in prow:
                             perf_by_student[pr['student_id']] = dict(pr)
@@ -1533,6 +1697,14 @@ def teacher_assign_performance():
                 student_ids = [single_id]
 
         if not student_ids or not week_number:
+            # log form for debugging
+            try:
+                with open('/tmp/admin_performance_assign_trace.log','a') as fh:
+                    fh.write('\n--- Missing fields on POST /teacher/assign_performance ---\n')
+                    for k in request.form.keys():
+                        fh.write(f"FORM {k}={request.form.get(k)}\n")
+            except Exception:
+                pass
             flash('Missing fields','danger')
             return redirect(request.referrer or url_for('teacher_dashboard'))
 
@@ -1560,10 +1732,26 @@ def teacher_assign_performance():
             entries.append((sid, lid, comm))
 
         inserted = 0
+        deleted = 0
         skipped = []
         for sid, lid, comm in entries:
             if not lid:
-                skipped.append((sid, 'no level'))
+                # If teacher cleared the select, delete any existing assignment for this student/week
+                try:
+                    cursor.execute('DELETE FROM performance WHERE student_id=%s AND teacher_id=%s AND week_number=%s AND year=%s', (int(sid), int(current_user.id), int(week_number), int(year)))
+                    if cursor.rowcount and cursor.rowcount > 0:
+                        deleted += cursor.rowcount
+                    else:
+                        skipped.append((sid, 'no level'))
+                except Exception as ex_del:
+                    # record delete error and continue
+                    try:
+                        with open('/tmp/admin_performance_assign_trace.log','a') as fh:
+                            fh.write('--- Error deleting performance ---\n')
+                            fh.write(f"student={sid} teacher_id={current_user.id} week_number={week_number} year={year} Exception: {ex_del}\n")
+                    except Exception:
+                        pass
+                    skipped.append((sid, f'delete error: {ex_del}'))
                 continue
             level_name = None
             lid_int = None
@@ -1593,8 +1781,20 @@ def teacher_assign_performance():
                     continue
 
                 # ensure year/week are ints (computed earlier). Use these normalized values.
-                cursor.execute('INSERT INTO performance (student_id, class_id, teacher_id, week_number, year, level_id, level_name, comment) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', (int(sid), int(class_id) if class_id else None, int(current_user.id), int(week_number), int(year), int(lid_int) if lid_int else None, level_name, comm))
-                inserted += 1
+                # Perform UPDATE first; if no row updated, INSERT. This avoids relying on ON CONFLICT and a unique index.
+                try:
+                    cursor.execute(
+                        'UPDATE performance SET level_id=%s, level_name=%s, comment=%s, updated_at=NOW() WHERE student_id=%s AND teacher_id=%s AND week_number=%s',
+                        (int(lid_int) if lid_int else None, level_name, comm, int(sid), int(current_user.id), int(week_number))
+                    )
+                    if cursor.rowcount == 0:
+                        cursor.execute(
+                            'INSERT INTO performance (student_id, class_id, teacher_id, week_number, year, level_id, level_name, comment) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                            (int(sid), int(class_id) if class_id else None, int(current_user.id), int(week_number), int(year), int(lid_int) if lid_int else None, level_name, comm)
+                        )
+                    inserted += 1
+                except Exception:
+                    raise
             except Exception as ex:
                 try:
                     conn.rollback()
@@ -1613,9 +1813,27 @@ def teacher_assign_performance():
                             pass
                 except Exception:
                     pass
-        if inserted:
-            conn.commit(); flash(f'Assigned performance for {inserted} students','success')
+        if inserted or deleted:
+            try:
+                conn.commit()
+            except Exception:
+                pass
+            if inserted:
+                flash(f'Assigned performance for {inserted} students','success')
+            if deleted:
+                flash(f'Deleted performance for {deleted} students','info')
+            if skipped:
+                flash(f'Skipped {len(skipped)} students (no level provided)','warning')
         else:
+            # log skipped details and form for debugging
+            try:
+                with open('/tmp/admin_performance_assign_trace.log','a') as fh:
+                    fh.write('\n--- No performance assignments made (skipped) ---\n')
+                    fh.write(f'Skipped entries: {skipped}\n')
+                    for k in request.form.keys():
+                        fh.write(f"FORM {k}={request.form.get(k)}\n")
+            except Exception:
+                pass
             flash('No performance assignments made','warning')
         return redirect(request.referrer or url_for('teacher_dashboard'))
     except Exception as e:
