@@ -180,18 +180,43 @@ belgacem@ubuntu-s-1vcpu-512mb-10gb-sgp1-01:~/Att_School$ source venv/bin/activat
 ////////////
 
 
+************bacbkup from local******
+
+pgAdmin
+backup plain *.sql -- bacbkup
+
 ************************Migration***************
 
 ssh belgacem@174.138.27.235
 scp /home/ounis/Desktop/Att_School/exports/beB21-01.sql belgacem@174.138.27.235:/~
 
+scp /d/ALMAS/Att_SchoolP/Att_School/backup/performance_level.sql belgacem@174.138.27.235:/~
+///cmd
+scp "D:\ALMAS\Att_SchoolP\Att_School\backup\performance_level.sql" belgacem@174.138.27.235:/home/belgacem/
+scp "D:\ALMAS\Att_SchoolP\Att_School\backup\violation.sql" belgacem@174.138.27.235:/home/belgacem/
+scp "D:\ALMAS\Att_SchoolP\Att_School\backup\violation_audit.sql" belgacem@174.138.27.235:/home/belgacem/
+scp "D:\ALMAS\Att_SchoolP\Att_School\backup\violation_type.sql" belgacem@174.138.27.235:/home/belgacem/
+ssh belgacem@174.138.27.235
+////
+
 sudo mv /home/belgacem/B21-01.sql /tmp/
+sudo mv /home/belgacem/performance_level.sql /tmp/
+sudo mv /home/belgacem/violation.sql /tmp/
+sudo mv /home/belgacem/violation_audit.sql /tmp/
+sudo mv /home/belgacem/violation_type.sql /tmp/
 sudo chmod 644 /tmp/B21-01.sql
+sudo chmod 644 /tmp/performance_level.sql
+sudo chmod 644 /tmp/violation.sql
+sudo chmod 644 /tmp/violation_audit.sql
+sudo chmod 644 /tmp/violation_type.sql
+
+
 sudo -i -u postgres
 psql -d alsisdb -f /tmp/B21-01.sql
+psql -d alsisdb -f /tmp/performance_level.sql
 exit
 
-
+*****************************************************
 sudo -u postgres psql
 \du	List users/roles
 \l	List databases
@@ -200,6 +225,24 @@ sudo -u postgres psql
 \dt *.*	List all tables in all schemas
 \q	Quit psql
 ***********************************
+
+sudo -u postgres psql
+
+\c dbname	Connect to a database
+
+GRANT SELECT ON TABLE performance TO adminit;
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON TABLE performance
+TO adminit;
+
+GRANT ALL PRIVILEGES ON TABLE performance TO adminit;
+
+ALTER DEFAULT PRIVILEGES
+IN SCHEMA public
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON TABLES TO adminit;
+
 
 SELECT current_user;
 
@@ -233,6 +276,50 @@ ALTER DEFAULT PRIVILEGES
 IN SCHEMA public
 GRANT SELECT, INSERT, UPDATE, DELETE
 ON TABLES TO your_user;
+
+****
+ATT
+   123456
+   #DATABASE_URL=postgresql://adminit:Almana(PG23)@localhost:5432/alsisdb
+
+
+#DATABASE_URL=postgresql://adminit:Bel@1981@localhost:5432/attdbsch
+
+LOCAL_ATT
+   Local
+   DATABASE_URL=postgresql://postgres:Almana@Pg23@localhost:5432/attdbsch
+
+#DATABASE_URL=postgresql+psycopg2://adminit:Bel@1981@localhost:5432/attdbsch
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 **********AWS*********************
