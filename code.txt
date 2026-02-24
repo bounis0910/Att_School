@@ -170,6 +170,22 @@ sudo systemctl status nginx
 
 sudo journalctl -u alsis_app
 sudo tail -f /var/log/nginx/errorlog
+************************************************************
+ssh username@server_ip
+cd /Att_School
+git pull origin mainSQL
+source venv/bin/activate   # if you use a virtualenv
+pip install -r requirements.txt
+desactivate
+sudo systemctl daemon-reload
+sudo systemctl reload alsis_app
+sudo systemctl restart alsis_app
+sudo systemctl status alsis_app
+
+sudo nginx -s reload
+sudo systemctl reload nginx
+sudo systemctl restart nginx
+sudo systemctl status nginx
 
 **************************//////////////////////************
 belgacem@ubuntu-s-1vcpu-512mb-10gb-sgp1-01:~/Att_School$ gunicorn --bind 0.0.0.0:5000 wsgi:app

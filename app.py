@@ -1261,23 +1261,7 @@ def admin_performance():
         return redirect(url_for('index'))
 
     conn = get_db(); cursor = conn.cursor()
-    # ensure performance table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS performance (
-            id SERIAL PRIMARY KEY,
-            student_id INTEGER,
-            class_id INTEGER,
-            teacher_id INTEGER,
-            week_number INTEGER NOT NULL,
-            year INTEGER NOT NULL,
-            level_id INTEGER,
-            level_name TEXT,
-            comment TEXT,
-            status VARCHAR(32) DEFAULT 'active',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    ''')
+    
 
     # filter by year/week optional
     year = request.args.get('year', type=int)
