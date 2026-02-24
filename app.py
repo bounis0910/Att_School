@@ -1550,15 +1550,7 @@ def teacher_assign_performance():
 
             # performance levels
             # Ensure performance_level table exists (runtime guard)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS performance_level (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    status VARCHAR(32) NOT NULL DEFAULT 'active',
-                    created_at TIMESTAMPTZ DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            ''')
+            
             cursor.execute('SELECT id, name FROM performance_level WHERE status = %s ORDER BY name', ('active',))
             levels = cursor.fetchall()
             # optional selected class to list students
