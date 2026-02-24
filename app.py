@@ -1235,15 +1235,7 @@ def admin_performance_levels():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS performance_level (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                status VARCHAR(32) NOT NULL DEFAULT 'active',
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        ''')
+   
         cursor.execute('SELECT id, name, status, created_at, updated_at FROM performance_level ORDER BY name')
         rows = cursor.fetchall()
         types = [RowObject(dict(r)) for r in rows]
