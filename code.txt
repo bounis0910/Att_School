@@ -193,26 +193,29 @@ scp /home/ounis/Desktop/Att_School/exports/beB21-01.sql belgacem@174.138.27.235:
 scp /d/ALMAS/Att_SchoolP/Att_School/backup/performance_level.sql belgacem@174.138.27.235:/~
 ///cmd
 scp "D:\ALMAS\Att_SchoolP\Att_School\backup\performance_level.sql" belgacem@174.138.27.235:/home/belgacem/
-scp "D:\ALMAS\Att_SchoolP\Att_School\backup\violation.sql" belgacem@174.138.27.235:/home/belgacem/
-scp "D:\ALMAS\Att_SchoolP\Att_School\backup\violation_audit.sql" belgacem@174.138.27.235:/home/belgacem/
-scp "D:\ALMAS\Att_SchoolP\Att_School\backup\violation_type.sql" belgacem@174.138.27.235:/home/belgacem/
+
+scp "D:\ALMAS\Att_SchoolP\Att_School\exports\violation.sql" belgacem@174.138.27.235:/home/belgacem/
+sudo mv /home/belgacem/violation.sql /tmp/
+sudo chmod 644 /tmp/violation.sql
+
+scp "D:\ALMAS\Att_SchoolP\Att_School\exports\violation_audit.sql" belgacem@174.138.27.235:/home/belgacem/
+sudo mv /home/belgacem/violation_audit.sql /tmp/
+sudo chmod 644 /tmp/violation_audit.sql
+
+scp "D:\ALMAS\Att_SchoolP\Att_School\exports\violation_type.sql" belgacem@174.138.27.235:/home/belgacem/
+sudo mv /home/belgacem/violation_type.sql /tmp/
+sudo chmod 644 /tmp/violation_type.sql
+/////
 ssh belgacem@174.138.27.235
 ////
 
-sudo mv /home/belgacem/B21-01.sql /tmp/
-sudo mv /home/belgacem/performance_level.sql /tmp/
-sudo mv /home/belgacem/violation.sql /tmp/
-sudo mv /home/belgacem/violation_audit.sql /tmp/
-sudo mv /home/belgacem/violation_type.sql /tmp/
-sudo chmod 644 /tmp/B21-01.sql
-sudo chmod 644 /tmp/performance_level.sql
-sudo chmod 644 /tmp/violation.sql
-sudo chmod 644 /tmp/violation_audit.sql
-sudo chmod 644 /tmp/violation_type.sql
-
-
 sudo -i -u postgres
 psql -d alsisdb -f /tmp/B21-01.sql
+
+psql -d alsisdb -f /tmp/violation.sql
+psql -d alsisdb -f /tmp/violation_audit.sql
+psql -d alsisdb -f /tmp/violation_type.sql
+
 psql -d alsisdb -f /tmp/performance_level.sql
 exit
 
