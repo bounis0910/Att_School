@@ -1204,15 +1204,7 @@ def admin_violation_types():
         conn = get_db()
         cursor = conn.cursor()
         # ensure table exists
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS violation_type (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                status VARCHAR(32) NOT NULL DEFAULT 'active',
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        ''')
+
         cursor.execute('SELECT id, name, status, created_at, updated_at FROM violation_type ORDER BY name')
         rows = cursor.fetchall()
         types = [RowObject(dict(r)) for r in rows]
