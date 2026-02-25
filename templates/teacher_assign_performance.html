@@ -40,12 +40,24 @@
         </div>
       </div>
       <table class="table table-sm">
-        <thead><tr><th>#</th><th>Student</th><th>Level</th><th>Comment</th></tr></thead>
+        <thead><tr><th>#</th><th>Student</th><th>Performances (week)</th><th>Level</th><th>Comment</th></tr></thead>
         <tbody>
             {% for s in students %}
           <tr>
             <td>{{ loop.index }}</td>
             <td>{{ s.name }} {% if s.roll_number %}({{ s.roll_number }}){% endif %}</td>
+            <td>
+              {% set lst = perf_list_by_student.get(s.id) if perf_list_by_student else [] %}
+              {% if lst and lst|length > 0 %}
+                <ul class="list-unstyled mb-0">
+                {% for pp in lst %}
+                  <li><small class="text-muted">{{ pp.teacher_name or ('Teacher #' ~ (pp.teacher_id or '')) }}:</small> <strong>{{ pp.level_name or pp.level_id or '—' }}</strong>{% if pp.comment %} — {{ pp.comment }}{% endif %}</li>
+                {% endfor %}
+                </ul>
+              {% else %}
+                <small class="text-muted">No entries</small>
+              {% endif %}
+            </td>
             <td>
               <input type="hidden" name="student_id" value="{{ s.id }}" />
                 {% set p = perf_by_student.get(s.id) if perf_by_student else None %}

@@ -1557,6 +1557,7 @@ def teacher_assign_performance():
             sel_class = request.args.get('class_id')
             students = []
             perf_by_student = {}
+            perf_list_by_student = {}
             if sel_class:
                 cursor.execute('SELECT id, name, roll_number FROM student WHERE class_id = %s ORDER BY roll_number NULLS LAST, name', (int(sel_class),))
                 students = cursor.fetchall()
@@ -1594,16 +1595,32 @@ def teacher_assign_performance():
                 try:
                     student_ids = [str(s['id']) for s in students]
                     perf_by_student = {}
+                    perf_list_by_student = {}
                     if student_ids:
                         placeholders = ','.join(['%s'] * len(student_ids))
                         # convert student ids to ints
                         sid_params = [int(x) for x in student_ids]
-                        # include current teacher id so we restore assignments made by this teacher only
-                        params = [int(sel_class), int(default_week_number), int(default_year), int(current_user.id)] + sid_params
-                        cursor.execute(f"SELECT * FROM performance WHERE class_id = %s AND week_number = %s AND year = %s AND teacher_id = %s AND student_id IN ({placeholders})", tuple(params))
-                        prow = cursor.fetchall()
-                        for pr in prow:
-                            perf_by_student[pr['student_id']] = dict(pr)
+
+                        # 1) load assignments made by the current teacher (used to prefill the form)
+                        try:
+                            params = [int(sel_class), int(default_week_number), int(default_year), int(current_user.id)] + sid_params
+                            cursor.execute(f"SELECT * FROM performance WHERE class_id = %s AND week_number = %s AND year = %s AND teacher_id = %s AND student_id IN ({placeholders})", tuple(params))
+                            prow = cursor.fetchall()
+                            for pr in prow:
+                                perf_by_student[pr['student_id']] = dict(pr)
+                        except Exception:
+                            perf_by_student = {}
+
+                        # 2) load ALL performances for those students for the same week/year (include teacher name)
+                        try:
+                            params_all = [int(sel_class), int(default_week_number), int(default_year)] + sid_params
+                            cursor.execute(f"SELECT p.*, u.username as teacher_name FROM performance p LEFT JOIN \"user\" u ON p.teacher_id = u.id WHERE p.class_id = %s AND p.week_number = %s AND p.year = %s AND p.student_id IN ({placeholders}) ORDER BY p.created_at DESC", tuple(params_all))
+                            all_rows = cursor.fetchall()
+                            for ar in all_rows:
+                                sid = ar['student_id']
+                                perf_list_by_student.setdefault(sid, []).append(dict(ar))
+                        except Exception:
+                            perf_list_by_student = {}
                 except Exception:
                     perf_by_student = {}
             # default week_number = current ISO week number
@@ -1617,7 +1634,7 @@ def teacher_assign_performance():
                 # fallback
                 default_week_number = int(today.strftime('%V')) if hasattr(today, 'strftime') else 1
                 default_year = today.year
-            return render_template('teacher_assign_performance.html', classes=classes, students=students, levels=levels, default_week_number=default_week_number, default_year=default_year, sel_class=sel_class, perf_by_student=perf_by_student)
+            return render_template('teacher_assign_performance.html', classes=classes, students=students, levels=levels, default_week_number=default_week_number, default_year=default_year, sel_class=sel_class, perf_by_student=perf_by_student, perf_list_by_student=perf_list_by_student)
 
         # POST: accept single or bulk assignments
         token = request.form.get('csrf_token')
