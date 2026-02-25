@@ -2091,13 +2091,13 @@ def admin_users_edit(user_id):
             if password:
                 hashed_pw = generate_password_hash(password, method='scrypt')
                 cursor.execute(
-                    'UPDATE "user" SET username = %s, role = %s, password = %s, email = %s, roll_number = %s, classes = %s WHERE id = %s',
-                    (username, role, hashed_pw, email, roll_number, classes_string, user_id)
+                    'UPDATE "user" SET username = %s, role = %s, password = %s, email = %s, classes = %s WHERE id = %s',
+                    (username, role, hashed_pw, email, classes_string, user_id)
                 )
             else:
                 cursor.execute(
-                    'UPDATE "user" SET username = %s, role = %s, email = %s, roll_number = %s, classes = %s WHERE id = %s',
-                    (username, role, email, roll_number, classes_string, user_id)
+                    'UPDATE "user" SET username = %s, role = %s, email = %s,classes = %s WHERE id = %s',
+                    (username, role, email, classes_string, user_id)
                 )
             
             conn.commit()
