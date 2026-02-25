@@ -235,6 +235,13 @@ psql -d alsisdb -f /tmp/violation_type.sql
 psql -d alsisdb -f /tmp/performance_level.sql
 exit
 
+
+sudo -u postgres psql
+\c alsisdb	Connect to a database
+
+GRANT USAGE, SELECT ON SEQUENCE performance_id_seq TO adminit;
+GRANT ALL PRIVILEGES ON TABLE performance TO adminit;
+GRANT USAGE, SELECT, UPDATE ON SEQUENCE performance_id_seq TO adminit;
 *****************************************************
 sudo -u postgres psql
 \du	List users/roles
@@ -244,7 +251,6 @@ sudo -u postgres psql
 \dt *.*	List all tables in all schemas
 \q	Quit psql
 ***********************************
-
 sudo -u postgres psql
 
 \c dbname	Connect to a database
