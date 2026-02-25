@@ -2079,7 +2079,7 @@ def admin_users_edit(user_id):
         username = request.form.get('name')
         role = request.form.get('role')
         password = request.form.get('password')
-        roll_number = request.form.get('roll_number')
+        #roll_number = request.form.get('roll_number')
         email = request.form.get('email')
         assigned_classes = request.form.getlist('assigned_classes')
         
