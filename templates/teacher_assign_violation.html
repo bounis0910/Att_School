@@ -1,0 +1,80 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h3>Assign Weekly Violations</h3>
+<div class="mb-3">
+  <a class="btn btn-secondary" href="{{ url_for('teacher_dashboard') }}">Back</a>
+</div>
+<div class="card">
+  <div class="card-body">
+    <form method="GET" class="mb-3">
+      <label class="form-label">Select Class</label>
+      <div class="input-group mb-3">
+        <select name="class_id" class="form-select">
+          <option value="">-- Select class --</option>
+          {% for c in classes %}
+          <option value="{{ c.id }}" {% if sel_class and sel_class|int==c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Load Students</button>
+      </div>
+    </form>
+
+    {% if students %}
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="class_id" value="{{ sel_class }}" />
+      <div class="mb-3">
+        <label class="form-label">Date (week)</label>
+        <input name="date" class="form-control" value="{{ default_date }}" />
+      </div>
+
+      <table class="table table-sm">
+        <thead><tr><th>#</th><th>Student</th><th>Existing (week)</th><th>Violation Type</th><th>Lesson</th><th>Period</th></tr></thead>
+        <tbody>
+            {% for s in students %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ s.name }} {% if s.roll_number %}({{ s.roll_number }}){% endif %}</td>
+            <td>
+              {% set lst = viol_list_by_student.get(s.id) if viol_list_by_student else [] %}
+              {% if lst and lst|length > 0 %}
+                <ul class="list-unstyled mb-0">
+                {% for pp in lst %}
+                  <li><small class="text-muted">{{ pp.staff_name or ('Staff #' ~ (pp.staff_id or '')) }}:</small> <strong>{{ pp.violation_name or '—' }}</strong>{% if pp.lesson_name %} — {{ pp.lesson_name }}{% endif %}</li>
+                {% endfor %}
+                </ul>
+              {% else %}
+                <small class="text-muted">No entries</small>
+              {% endif %}
+            </td>
+            <td>
+              <input type="hidden" name="student_id" value="{{ s.id }}" />
+              {% if violation_types and violation_types|length > 0 %}
+              <select name="violation_type_{{ s.id }}" class="form-select">
+                <option value="">---</option>
+                {% for vt in violation_types %}
+                <option value="{{ vt.id }}">{{ vt.name }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <input name="violation_type_{{ s.id }}" class="form-control" placeholder="Violation name" />
+              {% endif %}
+            </td>
+            <td><input name="lesson_{{ s.id }}" class="form-control" /></td>
+            <td><input name="period_{{ s.id }}" class="form-control" /></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if violation_types and violation_types|length > 0 %}
+      <button class="btn btn-primary" type="submit">Assign Violations for Selected Students</button>
+      {% else %}
+      <div class="alert alert-warning">No violation types available. Ask an administrator to create types: <a href="{{ url_for('staff_violations') }}">Manage Violation Types</a></div>
+      {% endif %}
+    </form>
+    {% else %}
+      <p class="text-muted">Select a class to load its students.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

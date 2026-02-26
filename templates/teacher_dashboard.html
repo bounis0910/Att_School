@@ -8,6 +8,9 @@
     <a href="{{ url_for('logout') }}" class="btn btn-outline-danger">
         <i class="bi bi-box-arrow-right"></i> تسجيل الخروج
     </a>
+    <a href="{{ url_for('teacher_assign_violation') }}" class="btn btn-outline-primary">
+        <i class="bi bi-exclamation-triangle"></i> تعيين مخالفات
+    </a>
 </div>
 <h3>المدرس: {{teacher.name}} | الصف : {{klass.name}} | التاريخ: {{today}}</h3>
 {% if current_period %}

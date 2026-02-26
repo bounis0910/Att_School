@@ -284,6 +284,126 @@ def admin_dashboard():
     
     return render_template('admin_dashboard.html', classes=classes)
 
+
+@app.route('/admin/violations_week')
+@login_required
+def admin_violations_week():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        from datetime import date
+        conn = get_db(); cursor = conn.cursor()
+        # determine week/year params
+        week = request.args.get('week')
+        year = request.args.get('year')
+        class_id = request.args.get('class_id')
+        today = date.today()
+        try:
+            if week:
+                week = int(week)
+            else:
+                week = today.isocalendar()[1]
+            if year:
+                year = int(year)
+            else:
+                year = today.isocalendar()[0]
+        except Exception:
+            week = today.isocalendar()[1]
+            year = today.isocalendar()[0]
+
+        # compute monday/sunday of ISO week
+        try:
+            from datetime import date as Date
+            monday = Date.fromisocalendar(year, week, 1)
+            sunday = Date.fromisocalendar(year, week, 7)
+        except Exception:
+            monday = today
+            sunday = today
+
+        params = [monday.isoformat(), sunday.isoformat()]
+        where_cls = ''
+        if class_id:
+            where_cls = ' AND v.class_id = %s'
+            params.append(int(class_id))
+
+        # aggregate by violation name and class
+        sql = f"SELECT v.violation_name, c.name as class_name, COUNT(*) as cnt FROM violation v LEFT JOIN school_class c ON v.class_id = c.id WHERE v.date >= %s AND v.date <= %s {where_cls} GROUP BY v.violation_name, c.name ORDER BY cnt DESC"
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+
+        # Also fetch classes for filter
+        cursor.execute('SELECT id, name FROM school_class ORDER BY name')
+        classes_rows = cursor.fetchall()
+
+        return render_template('admin_violations_week.html', rows=rows, monday=monday, sunday=sunday, week=week, year=year, classes=classes_rows, sel_class=class_id)
+    except Exception as e:
+        tb = traceback.format_exc(); print(tb)
+        flash(f'Error loading weekly violations: {e}', 'danger')
+        return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/violations_week/export')
+@login_required
+def admin_violations_week_export():
+    if current_user.role != 'admin':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        from datetime import date
+        conn = get_db(); cursor = conn.cursor()
+        week = request.args.get('week')
+        year = request.args.get('year')
+        class_id = request.args.get('class_id')
+        today = date.today()
+        try:
+            if week:
+                week = int(week)
+            else:
+                week = today.isocalendar()[1]
+            if year:
+                year = int(year)
+            else:
+                year = today.isocalendar()[0]
+        except Exception:
+            week = today.isocalendar()[1]
+            year = today.isocalendar()[0]
+        try:
+            from datetime import date as Date
+            monday = Date.fromisocalendar(year, week, 1)
+            sunday = Date.fromisocalendar(year, week, 7)
+        except Exception:
+            monday = today
+            sunday = today
+
+        params = [monday.isoformat(), sunday.isoformat()]
+        where_cls = ''
+        if class_id:
+            where_cls = ' AND v.class_id = %s'
+            params.append(int(class_id))
+
+        sql = f"SELECT v.violation_name, c.name as class_name, COUNT(*) as cnt FROM violation v LEFT JOIN school_class c ON v.class_id = c.id WHERE v.date >= %s AND v.date <= %s {where_cls} GROUP BY v.violation_name, c.name ORDER BY cnt DESC"
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+
+        # build Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f'Violations W{week}-{year}'
+        ws.append(['Violation', 'Class', 'Count'])
+        for r in rows:
+            ws.append([r.get('violation_name'), r.get('class_name'), r.get('cnt')])
+
+        bio = BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+        fname = f'violations_week_{week}_{year}.xlsx'
+        return send_file(bio, as_attachment=True, download_name=fname, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        tb = traceback.format_exc(); print(tb)
+        flash(f'Error exporting weekly violations: {e}', 'danger')
+        return redirect(url_for('admin_violations_week'))
+
 @app.route('/staff/dashboard')
 @login_required
 def staff_dashboard():
@@ -892,6 +1012,192 @@ def teacher_dashboard():
     except Exception as e:
         flash(f'Error loading dashboard: {str(e)}', 'danger')
         return redirect(url_for('teacher_classes'))
+
+
+@app.route('/teacher/assign_violation', methods=['GET','POST'])
+@login_required
+def teacher_assign_violation():
+    if current_user.role != 'teacher':
+        flash('Unauthorized', 'danger')
+        return redirect(url_for('index'))
+    try:
+        conn = get_db(); cursor = conn.cursor()
+        # Fetch classes assigned to this teacher
+        cursor.execute('SELECT classes FROM "user" WHERE id = %s', (current_user.id,))
+        user_row = cursor.fetchone()
+        classes = []
+        if user_row and user_row.get('classes'):
+            class_ids_str = user_row['classes'].strip()
+            if class_ids_str:
+                class_ids = [cid.strip() for cid in class_ids_str.split(',') if cid.strip()]
+                if class_ids:
+                    placeholders = ','.join(['%s'] * len(class_ids))
+                    cursor.execute(f"SELECT id, name FROM school_class WHERE id IN ({placeholders}) ORDER BY name", class_ids)
+                    classes = cursor.fetchall()
+
+        # Ensure violation_type table exists and load active types
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS violation_type (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                status VARCHAR(32) NOT NULL DEFAULT 'active',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+        try:
+            cursor.execute("SELECT id, name FROM violation_type WHERE status = %s ORDER BY name", ('active',))
+            violation_types = cursor.fetchall()
+        except Exception:
+            violation_types = []
+
+        sel_class = request.args.get('class_id')
+        students = []
+        viol_by_student = {}
+        viol_list_by_student = {}
+        from datetime import date, timedelta
+        today = date.today()
+        default_date = today.isoformat()
+
+        if sel_class:
+            cursor.execute('SELECT id, name, roll_number FROM student WHERE class_id = %s ORDER BY roll_number NULLS LAST, name', (int(sel_class),))
+            students = cursor.fetchall()
+
+            # Ensure violation table exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS violation (
+                    id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL,
+                    class_id INTEGER,
+                    staff_id INTEGER,
+                    violation_name TEXT,
+                    lesson_name TEXT,
+                    period INTEGER,
+                    statement_of_receipt TEXT,
+                    parental_consent VARCHAR(32),
+                    referral TEXT,
+                    date DATE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            ''')
+
+            # build student id list
+            student_ids = [str(s['id']) for s in students]
+            if student_ids:
+                placeholders = ','.join(['%s'] * len(student_ids))
+                sid_params = [int(x) for x in student_ids]
+
+                # compute current week range (Monday..Sunday)
+                try:
+                    wd = today.isoweekday()
+                    monday = today - timedelta(days=(wd-1))
+                    sunday = monday + timedelta(days=6)
+                except Exception:
+                    monday = today
+                    sunday = today
+
+                # load violations by this teacher for the week to prefill per-student selection
+                try:
+                    params = [int(sel_class), monday.isoformat(), sunday.isoformat(), int(current_user.id)] + sid_params
+                    cursor.execute(f"SELECT * FROM violation WHERE class_id = %s AND date >= %s AND date <= %s AND staff_id = %s AND student_id IN ({placeholders})", tuple(params))
+                    prow = cursor.fetchall()
+                    for pr in prow:
+                        viol_by_student[pr['student_id']] = dict(pr)
+                except Exception:
+                    viol_by_student = {}
+
+                # load ALL violations for those students for the same week (include staff name)
+                try:
+                    params_all = [int(sel_class), monday.isoformat(), sunday.isoformat()] + sid_params
+                    cursor.execute(f"SELECT v.*, u.username as staff_name FROM violation v LEFT JOIN \"user\" u ON v.staff_id = u.id WHERE v.class_id = %s AND v.date >= %s AND v.date <= %s AND v.student_id IN ({placeholders}) ORDER BY v.created_at DESC", tuple(params_all))
+                    all_rows = cursor.fetchall()
+                    for ar in all_rows:
+                        sid = ar['student_id']
+                        viol_list_by_student.setdefault(sid, []).append(dict(ar))
+                except Exception:
+                    viol_list_by_student = {}
+
+        if request.method == 'GET':
+            return render_template('teacher_assign_violation.html', classes=classes, students=students, violation_types=violation_types, sel_class=sel_class, viol_by_student=viol_by_student, viol_list_by_student=viol_list_by_student, default_date=default_date)
+
+        # POST: handle assignments
+        token = request.form.get('csrf_token')
+        if not validate_csrf(token):
+            flash('Invalid CSRF token','danger')
+            return redirect(request.referrer or url_for('teacher_dashboard'))
+
+        class_id = request.form.get('class_id')
+        student_ids = request.form.getlist('student_id')
+        if not student_ids:
+            single = request.form.get('student_id')
+            if single:
+                student_ids = [single]
+
+        date_val = request.form.get('date') or default_date
+        inserted = 0
+        skipped = []
+        for sid in student_ids:
+            sid_str = str(sid)
+            v_name = request.form.get(f'violation_type_{sid_str}')
+            lesson = request.form.get(f'lesson_{sid_str}')
+            period = request.form.get(f'period_{sid_str}')
+            if not v_name:
+                skipped.append((sid, 'no violation'))
+                continue
+            try:
+                # allow numeric id or name
+                v_id_int = None
+                try:
+                    v_id_int = int(v_name)
+                except Exception:
+                    v_id_int = None
+
+                violation_name = None
+                if v_id_int:
+                    cursor.execute('SELECT name FROM violation_type WHERE id = %s', (v_id_int,))
+                    r = cursor.fetchone()
+                    violation_name = r['name'] if r and 'name' in r else None
+                else:
+                    # v_name may be a name
+                    cursor.execute('SELECT id, name FROM violation_type WHERE name = %s LIMIT 1', (v_name,))
+                    r = cursor.fetchone()
+                    if r and 'id' in r:
+                        violation_name = r['name']
+                    else:
+                        violation_name = v_name
+
+                cursor.execute('INSERT INTO violation (student_id, class_id, staff_id, violation_name, lesson_name, period, date) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id', (int(sid), int(class_id) if class_id else None, int(current_user.id), violation_name, lesson, int(period) if period else None, date_val))
+                ir = cursor.fetchone()
+                vid = ir['id'] if ir and 'id' in ir else None
+                try:
+                    details = json.dumps({'violation_name': violation_name, 'lesson': lesson, 'period': period})
+                    cursor.execute('INSERT INTO violation_audit (violation_id, action, user_id, username, details) VALUES (%s,%s,%s,%s,%s)', (vid, 'create', current_user.id, getattr(current_user, 'username', None), details))
+                except Exception:
+                    pass
+                inserted += 1
+            except Exception as ex:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                skipped.append((sid, str(ex)))
+
+        if inserted:
+            try:
+                conn.commit()
+            except Exception:
+                pass
+            flash(f'Assigned violation for {inserted} students','success')
+        if skipped:
+            flash(f'Skipped {len(skipped)} students','warning')
+        return redirect(request.referrer or url_for('teacher_assign_violation'))
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        flash(f'Error assigning violation: {e}','danger')
+        return redirect(request.referrer or url_for('teacher_dashboard'))
 
 # ================ Admin Routes ================
 
