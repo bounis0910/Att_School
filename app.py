@@ -590,34 +590,9 @@ def staff_violations():
                     classes = [RowObject(dict(r)) for r in classes_rows]
 
         # Ensure violation table exists
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS violation (
-                id SERIAL PRIMARY KEY,
-                student_id INTEGER NOT NULL,
-                class_id INTEGER,
-                staff_id INTEGER,
-                violation_name TEXT,
-                lesson_name TEXT,
-                period INTEGER,
-                statement_of_receipt TEXT,
-                parental_consent VARCHAR(32),
-                referral TEXT,
-                date DATE,
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
+
         # Ensure audit table exists
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS violation_audit (
-                id SERIAL PRIMARY KEY,
-                violation_id INTEGER,
-                action VARCHAR(32),
-                user_id INTEGER,
-                username TEXT,
-                details JSONB,
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
+
 
         # Ensure a separate table exists to manage the list of violation names (types)
 
@@ -819,22 +794,7 @@ def staff_assign_violation():
         cursor = conn.cursor()
 
         # Ensure table exists (simple migration)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS violation (
-                id SERIAL PRIMARY KEY,
-                student_id INTEGER NOT NULL,
-                class_id INTEGER,
-                staff_id INTEGER,
-                violation_name TEXT,
-                lesson_name TEXT,
-                period INTEGER,
-                statement_of_receipt TEXT,
-                parental_consent VARCHAR(32),
-                referral TEXT,
-                date DATE,
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
+
 
         cursor.execute("""
             INSERT INTO violation (student_id, class_id, staff_id, violation_name, lesson_name, period, statement_of_receipt, parental_consent, referral, date)
@@ -1055,22 +1015,6 @@ def teacher_assign_violation():
             students = cursor.fetchall()
 
             # Ensure violation table exists
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS violation (
-                    id SERIAL PRIMARY KEY,
-                    student_id INTEGER NOT NULL,
-                    class_id INTEGER,
-                    staff_id INTEGER,
-                    violation_name TEXT,
-                    lesson_name TEXT,
-                    period INTEGER,
-                    statement_of_receipt TEXT,
-                    parental_consent VARCHAR(32),
-                    referral TEXT,
-                    date DATE,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            ''')
 
             # build student id list
             student_ids = [str(s['id']) for s in students]
@@ -1656,15 +1600,7 @@ def admin_performance_level_create():
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
     conn = get_db(); cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS performance_level (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            status VARCHAR(32) NOT NULL DEFAULT 'active',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    ''')
+ 
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
         status = request.form.get('status') or 'active'
@@ -1694,15 +1630,7 @@ def admin_performance_level_edit(pid):
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
     conn = get_db(); cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS performance_level (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            status VARCHAR(32) NOT NULL DEFAULT 'active',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    ''')
+
     if request.method == 'POST':
         token = request.form.get('csrf_token')
         if not validate_csrf(token):

@@ -239,6 +239,7 @@ exit
 
 sudo -u postgres psql -d alsisdb -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO adminit;"
 sudo -u postgres psql -d alsisdb -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO adminit;"
+sudo systemctl restart alsis_app
 
 sudo -u postgres psql
 \c alsisdb	Connect to a database
