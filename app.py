@@ -201,7 +201,15 @@ def admin_login():
                     login_user(user)
                     return redirect(url_for('admin_dashboard'))
         except Exception as e:
-            print(f"Login error: {e}")
+            import traceback
+            tb = traceback.format_exc()
+            print(f"Login error: {e}\n{tb}")
+            try:
+                with open('/tmp/teacher_login_error.log','a') as fh:
+                    fh.write('\n--- teacher_login exception ---\n')
+                    fh.write(tb)
+            except Exception:
+                pass
         
         flash('Invalid credentials', 'danger')
     
@@ -1036,15 +1044,7 @@ def teacher_assign_violation():
                     classes = cursor.fetchall()
 
         # Ensure violation_type table exists and load active types
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS violation_type (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                status VARCHAR(32) NOT NULL DEFAULT 'active',
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        ''')
+
         try:
             cursor.execute("SELECT id, name FROM violation_type WHERE status = %s ORDER BY name", ('active',))
             violation_types = cursor.fetchall()
