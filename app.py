@@ -620,15 +620,6 @@ def staff_violations():
         """)
 
         # Ensure a separate table exists to manage the list of violation names (types)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS violation_type (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                status VARCHAR(32) NOT NULL DEFAULT 'active',
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
 
         # Fetch active violation types for the staff assignment form
         try:
@@ -2137,15 +2128,7 @@ def admin_violation_type_create():
     conn = get_db()
     cursor = conn.cursor()
     # ensure table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS violation_type (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            status VARCHAR(32) NOT NULL DEFAULT 'active',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    ''')
+
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
         status = request.form.get('status') or 'active'
@@ -2177,15 +2160,7 @@ def admin_violation_type_edit(vt_id):
     conn = get_db()
     cursor = conn.cursor()
     # ensure table exists
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS violation_type (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            status VARCHAR(32) NOT NULL DEFAULT 'active',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    ''')
+
     if request.method == 'POST':
         token = request.form.get('csrf_token')
         if not validate_csrf(token):
