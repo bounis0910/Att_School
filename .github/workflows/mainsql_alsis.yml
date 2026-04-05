@@ -2,7 +2,7 @@
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
 
-name: Build and deploy Python app to Azure Web App - alsis
+name: Build and deploy Python app to Azure Web App - ALSIS
 
 on:
   push:
@@ -63,14 +63,14 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_82223F12BB144511A97E17194D0E3BE7 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_06E65A4D4CD340F4ABCE7E1C2065F157 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A272B79E8FF44A2EBF7EA41200ED886F }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_E052A68B077F44978E6665083709C7D9 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_589962BFE8A343F9B69F372C66C5A806 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_5D4B93092ED44B1D814E7B07E5930B66 }}
 
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
-          app-name: 'alsis'
+          app-name: 'ALSIS'
           slot-name: 'Production'
           
