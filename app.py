@@ -1,5 +1,4 @@
-"""
-Attendance System - PostgreSQL with Pure psycopg2 (No SQLAlchemy)
+"""Attendance System - PostgreSQL with Pure psycopg2 (No SQLAlchemy)
 """
 import os
 
