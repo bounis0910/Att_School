@@ -237,8 +237,12 @@ exit
 
 *****************************
 
-sudo -u postgres psql -d alsisdb -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO adminit;"
-sudo -u postgres psql -d alsisdb -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO adminit;"
+sudo -u postgres psql -d alsisdb -c "GRANT USAGE ON SCHEMA public TO adminit;"
+sudo -u postgres psql -d alsisdb -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO adminit;"
+sudo -u postgres psql -d alsisdb -c "GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO adminit;"
+# Make future tables/sequences also grantable to the role (run as the schema owner or the user that creates objects)
+sudo -u postgres psql -d alsisdb -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO adminit;"
+sudo -u postgres psql -d alsisdb -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO adminit;"
 sudo systemctl restart alsis_app
 
 sudo -u postgres psql

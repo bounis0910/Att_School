@@ -88,6 +88,38 @@ def get_db():
     return db_conn
 
 
+def ensure_violation_type_table_shape(cursor):
+    """Ensure violation_type table includes applies_to role scoping."""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS violation_type (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            status VARCHAR(32) NOT NULL DEFAULT 'active',
+            applies_to VARCHAR(16) NOT NULL DEFAULT 'both',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+    cursor.execute("ALTER TABLE violation_type ADD COLUMN IF NOT EXISTS applies_to VARCHAR(16)")
+    cursor.execute("UPDATE violation_type SET applies_to = 'both' WHERE applies_to IS NULL OR applies_to = ''")
+    cursor.execute("ALTER TABLE violation_type ALTER COLUMN applies_to SET DEFAULT 'both'")
+    cursor.execute("ALTER TABLE violation_type ALTER COLUMN applies_to SET NOT NULL")
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'violation_type_applies_to_check'
+            ) THEN
+                ALTER TABLE violation_type
+                ADD CONSTRAINT violation_type_applies_to_check
+                CHECK (applies_to IN ('teacher', 'staff', 'both'));
+            END IF;
+        END $$;
+    ''')
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_violation_type_status ON violation_type(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_violation_type_applies_to ON violation_type(applies_to)")
+
+
 # --- CSRF helpers ---
 def _generate_csrf_token():
     token = session.get('_csrf_token')
@@ -595,10 +627,14 @@ def staff_violations():
 
 
         # Ensure a separate table exists to manage the list of violation names (types)
+        ensure_violation_type_table_shape(cursor)
 
         # Fetch active violation types for the staff assignment form
         try:
-            cursor.execute("SELECT id, name FROM violation_type WHERE status = %s ORDER BY name", ('active',))
+            cursor.execute(
+                "SELECT id, name FROM violation_type WHERE status = %s AND applies_to IN (%s, %s) ORDER BY name",
+                ('active', 'staff', 'both')
+            )
             vt_rows = cursor.fetchall()
             violation_types = [RowObject(dict(r)) for r in vt_rows]
         except Exception:
@@ -995,9 +1031,13 @@ def teacher_assign_violation():
                     classes = cursor.fetchall()
 
         # Ensure violation_type table exists and load active types
+        ensure_violation_type_table_shape(cursor)
 
         try:
-            cursor.execute("SELECT id, name FROM violation_type WHERE status = %s ORDER BY name", ('active',))
+            cursor.execute(
+                "SELECT id, name FROM violation_type WHERE status = %s AND applies_to IN (%s, %s) ORDER BY name",
+                ('active', 'teacher', 'both')
+            )
             violation_types = cursor.fetchall()
         except Exception:
             violation_types = []
@@ -1089,12 +1129,18 @@ def teacher_assign_violation():
 
                 violation_name = None
                 if v_id_int:
-                    cursor.execute('SELECT name FROM violation_type WHERE id = %s', (v_id_int,))
+                    cursor.execute(
+                        'SELECT name FROM violation_type WHERE id = %s AND status = %s AND applies_to IN (%s, %s)',
+                        (v_id_int, 'active', 'teacher', 'both')
+                    )
                     r = cursor.fetchone()
                     violation_name = r['name'] if r and 'name' in r else None
                 else:
                     # v_name may be a name
-                    cursor.execute('SELECT id, name FROM violation_type WHERE name = %s LIMIT 1', (v_name,))
+                    cursor.execute(
+                        'SELECT id, name FROM violation_type WHERE name = %s AND status = %s AND applies_to IN (%s, %s) LIMIT 1',
+                        (v_name, 'active', 'teacher', 'both')
+                    )
                     r = cursor.fetchone()
                     if r and 'id' in r:
                         violation_name = r['name']
@@ -1445,8 +1491,9 @@ def admin_violation_types():
         conn = get_db()
         cursor = conn.cursor()
         # ensure table exists
+        ensure_violation_type_table_shape(cursor)
 
-        cursor.execute('SELECT id, name, status, created_at, updated_at FROM violation_type ORDER BY name')
+        cursor.execute('SELECT id, name, status, applies_to, created_at, updated_at FROM violation_type ORDER BY name')
         rows = cursor.fetchall()
         types = [RowObject(dict(r)) for r in rows]
         return render_template('admin_violation_types.html', types=types)
@@ -2056,10 +2103,12 @@ def admin_violation_type_create():
     conn = get_db()
     cursor = conn.cursor()
     # ensure table
+    ensure_violation_type_table_shape(cursor)
 
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
         status = request.form.get('status') or 'active'
+        applies_to = (request.form.get('applies_to') or 'both').strip().lower()
         token = request.form.get('csrf_token')
         if not validate_csrf(token):
             flash('Invalid CSRF token', 'danger')
@@ -2067,8 +2116,10 @@ def admin_violation_type_create():
         if not name:
             flash('Name is required', 'danger')
             return render_template('admin_violation_type_form.html', type=None)
+        if applies_to not in ('teacher', 'staff', 'both'):
+            applies_to = 'both'
         try:
-            cursor.execute('INSERT INTO violation_type (name, status) VALUES (%s,%s) RETURNING id', (name, status))
+            cursor.execute('INSERT INTO violation_type (name, status, applies_to) VALUES (%s,%s,%s) RETURNING id', (name, status, applies_to))
             conn.commit()
             flash('Violation type created', 'success')
             return redirect(url_for('admin_violation_types'))
@@ -2088,6 +2139,7 @@ def admin_violation_type_edit(vt_id):
     conn = get_db()
     cursor = conn.cursor()
     # ensure table exists
+    ensure_violation_type_table_shape(cursor)
 
     if request.method == 'POST':
         token = request.form.get('csrf_token')
@@ -2096,11 +2148,14 @@ def admin_violation_type_edit(vt_id):
             return redirect(url_for('admin_violation_types'))
         name = (request.form.get('name') or '').strip()
         status = request.form.get('status') or 'active'
+        applies_to = (request.form.get('applies_to') or 'both').strip().lower()
         if not name:
             flash('Name is required', 'danger')
             return redirect(url_for('admin_violation_type_edit', vt_id=vt_id))
+        if applies_to not in ('teacher', 'staff', 'both'):
+            applies_to = 'both'
         try:
-            cursor.execute('UPDATE violation_type SET name=%s, status=%s, updated_at=NOW() WHERE id=%s', (name, status, vt_id))
+            cursor.execute('UPDATE violation_type SET name=%s, status=%s, applies_to=%s, updated_at=NOW() WHERE id=%s', (name, status, applies_to, vt_id))
             conn.commit()
             flash('Violation type updated', 'success')
             return redirect(url_for('admin_violation_types'))
