@@ -335,7 +335,10 @@ LOCAL_ATT
 
 
 
-
+C:\Windows\System32>cloudflared.exe service install eyJhIjoiOWNmZjVhY2Y1MjY0MzgzMmYzMmY3MGVlOGVhZjNjOWEiLCJ0IjoiMzFmZTI0OWQtNjk3ZC00N2E0LWE4MTctODBlZWMxMGM5MGI4IiwicyI6Ik9XVmtNV0ZsWm1NdFpXSXdZaTAwWWpsakxUa3lZekF0WXpobU4yWmpOMlEzTW1RdyJ9
+2026-03-29T05:49:43Z INF Installing cloudflared Windows service
+2026-03-29T05:49:43Z INF cloudflared agent service is installed windowsServiceName=Cloudflared
+2026-03-29T05:49:43Z INF Agent service for cloudflared installed successfully windowsServiceName=Cloudflared
 
 
 
