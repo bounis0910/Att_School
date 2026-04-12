@@ -21,6 +21,14 @@
           <option value="inactive" {% if type and type.status=='inactive' %}selected{% endif %}>Inactive</option>
         </select>
       </div>
+      <div class="mb-3">
+        <label class="form-label">Applies To</label>
+        <select name="applies_to" class="form-select">
+          <option value="both" {% if (not type) or type.applies_to=='both' %}selected{% endif %}>Both</option>
+          <option value="teacher" {% if type and type.applies_to=='teacher' %}selected{% endif %}>Teacher</option>
+          <option value="staff" {% if type and type.applies_to=='staff' %}selected{% endif %}>Staff</option>
+        </select>
+      </div>
       <button class="btn btn-primary" type="submit">{% if type %}Update{% else %}Create{% endif %}</button>
     </form>
   </div>
